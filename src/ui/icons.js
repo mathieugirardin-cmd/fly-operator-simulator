@@ -1,0 +1,20 @@
+const paths = {
+  dashboard: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  route: '<path d="M7 17c-7-4 0-16 7-12s-5 6-2 10 12-1 8-6"/><circle cx="7" cy="17" r="3"/><path d="m17 8 3 1 1-3"/>',
+  train: '<rect x="5" y="3" width="14" height="16" rx="4"/><path d="M5 10h14M12 3v7M8 19l-2 3m10-3 2 3"/><path d="M8 15h1m6 0h1"/>',
+  journal: '<rect x="5" y="3" width="15" height="18" rx="2"/><path d="M9 8h7M9 12h7M9 16h4M2 7h5M2 12h5M2 17h5"/>',
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4m0 3h.01"/>',
+  settings: '<path d="M12 8v8M8 12h8"/><circle cx="12" cy="12" r="9"/>',
+  save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12l4 4v12a2 2 0 0 1-2 2Z"/><path d="M7 3v6h9V3M7 21v-8h10v8"/>',
+  camera: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/>',
+  expand: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
+  arrow: '<path d="M4 12h16m-6-6 6 6-6 6"/>',
+  check: '<path d="m5 12 4 4L19 6"/>',
+  power: '<path d="M12 2v10m-5-7a9 9 0 1 0 10 0"/>',
+  people: '<circle cx="9" cy="7" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 4a3 3 0 0 1 0 6m2 4a5 5 0 0 1 3 4v3"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
+  lock: '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 6v2"/>',
+  warning: '<path d="m12 3 10 18H2Z"/><path d="M12 9v5m0 3v1"/>',
+  reset: '<path d="M3 10a9 9 0 1 1 1 8M3 3v7h7"/>',
+};
+export const icon = (name, cls = '') => `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.dashboard}</svg>`;
