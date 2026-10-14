@@ -12,9 +12,9 @@ function running() {
 describe('restauration cohérente et déterministe', () => {
   it('reprend exactement un embarquement partiel, avec horloge fractionnaire et générateur aléatoire', () => {
     const original = running();
-    for (let tick = 0; tick < 1000; tick++) {
+    for (let tick = 0; tick < 6000; tick++) {
       original.update(.1);
-      if (original.state.trains[0].state === 'LOADING' && original.state.trains[0].loadingElapsed > 2) break;
+      if (original.state.trains[0].state === 'LOADING' && original.state.trains[0].passengers>0&&original.state.visitors.boarding>0) break;
     }
     expect(original.state.visitors.boarding).toBeGreaterThan(0);
     expect(original.state.trains[0].passengers).toBeGreaterThan(0);

@@ -49,6 +49,7 @@ export class HarnessSystem {
     if(type==='HARNESS_EXIT'&&r.state==='UNFIT') {
       const id=r.visitorId;t.passengerIds=t.passengerIds.filter(x=>x!==id);t.passengers--;s.flow.metrics.exited++;
       this.engine.lockers.retrieve([id]);r.visitorId=null;r.state='EMPTY';t.rows[row]=false;s.station.platformClear=false;
+      s.flow.egress.push({id,stage:'retrieval',remaining:0});
       return ok('Passager sorti sous accompagnement ; récupération de ses affaires et nouvelle vérification du quai requises.');
     }
     return no('Action non adaptée à cette retenue. Un défaut technique nécessite la maintenance.');

@@ -5,8 +5,8 @@ import {queuePeople} from '../rendering/Queue2DRenderer.js';
 const until=(e,p,seconds=300)=>{for(let i=0;i<seconds*10;i++){if(p())return;e.update(.1);}throw new Error('Scénario V4 bloqué');};
 const open=()=>{const e=new SimulationEngine();for(const type of ['INITIALIZE','OPEN'])e.command(type);e.command('SET_ARRIVAL_RATE',{rate:0});return e;};
 const auto=e=>{e.command('SET_MODE',{mode:'auto'});e.command('TOGGLE_DISPATCH');};
-const manualShow=(e,capacity=8)=>{e.command('PRESHOW_AUTO');e.command('SET_FLOW_CONFIG',{field:'capacity',value:capacity});e.command('PRESHOW_OPEN');until(e,()=>e.state.flow.preshow.state==='FULL');};
-const finishShow=e=>{e.command('PRESHOW_CLOSE');e.command('PRESHOW_START');until(e,()=>e.state.flow.preshow.state==='FINISHED');e.command('PRESHOW_EXIT');until(e,()=>e.state.flow.preshow.state==='CLOSED');};
+const manualShow=(e,capacity=8)=>{e.command('PRESHOW_AUTO');e.command('SET_FLOW_CONFIG',{field:'capacity',value:capacity});e.command('SET_FLOW_CONFIG',{field:'groupSize',value:capacity});e.command('PRESHOW_OPEN');until(e,()=>e.state.flow.preshow.state==='FULL'&&e.state.flow.preshow.batch.length===capacity);};
+const finishShow=e=>{e.command('PRESHOW_CLOSE');until(e,()=>e.state.flow.preshow.state==='READY');e.command('PRESHOW_START');until(e,()=>e.state.flow.preshow.state==='FINISHED');e.command('PRESHOW_EXIT');until(e,()=>e.state.flow.preshow.state==='CLOSED');};
 const assertConserved=e=>{const s=e.state,ids=[...s.flow.people.map(p=>p.id),...s.trains.flatMap(t=>[...t.passengerIds,...t.boardingIds])];expect(new Set(ids).size).toBe(ids.length);expect(ids.length+s.visitors.transported+s.flow.metrics.exited).toBe(s.visitors.totalArrived);expect(validateSnapshot(e.snapshot())).toBe(true);};
 
 describe('flux V4, préshow et fusion des files',()=>{
@@ -41,7 +41,7 @@ describe('deux postes et inventaire caché',()=>{
     expect(e.command('SECURITY_ALLOW',{id:'SEC-01'}).status).toBe('rejected');
     e.command('SECURITY_INSPECT',{id:'SEC-01'});expect(e.command('SECURITY_ALLOW',{id:'SEC-01'}).status).toBe('rejected');expect(e.state.flow.metrics.penalties).toBe(1);
     e.update(4);expect(post.inspected).toBe(true);expect(e.state.flow.metrics.checks).toBeGreaterThan(0);
-    e.command('SECURITY_RETURN',{id:'SEC-01'});expect(e.flow.person(1)).toMatchObject({stage:'lockers',recheck:true,inventory:[]});
+    e.command('SECURITY_RETURN',{id:'SEC-01'});expect(e.flow.person(1)).toMatchObject({stage:'transit',recheck:true,inventory:[]});
     e.command('SECURITY_CONTROL',{id:null});until(e,()=>e.flow.person(1)?.stage==='ready');expect(e.lockers.forVisitor(1).id).toBe(lockerId);expect(e.state.flow.metrics.returns).toBe(1);assertConserved(e);
   });
   it('un poste fermé retient son visiteur et le second continue avec un temps réel de contrôle',()=>{

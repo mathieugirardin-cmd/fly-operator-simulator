@@ -207,9 +207,9 @@ describe('exploitation par les commandes publiques', () => {
 
   it('borne la file saturée et coupe les nouvelles arrivées à la fermeture', () => {
     const engine = initialized();
-    run(engine, 600);
+    run(engine, 900);
     assertWorld(engine.state);
-    expect(engine.state.visitors.queue).toBe(SIMULATION_CONFIG.queueCapacity);
+    expect(engine.state.flow.people.filter(p=>p.stage==='queue'&&p.lane==='standard')).toHaveLength(engine.state.flow.lanes.standard.capacity);
     command(engine, 'CLOSE');
     const arrived = engine.state.visitors.totalArrived;
     run(engine, 60);
@@ -234,8 +234,8 @@ describe('exploitation par les commandes publiques', () => {
       const before = engine.state.trains.map(({ blockId, passengers }) => ({ blockId, passengers }));
       engine.step(.1);
       engine.state.trains.forEach((train, index) => {
-        if (before[index].blockId === 'UNLOAD' && before[index].passengers && train.passengers === 0) {
-          observedDisembarked += before[index].passengers;
+        if (before[index].blockId === 'UNLOAD' && before[index].passengers>train.passengers) {
+          observedDisembarked += before[index].passengers-train.passengers;
         }
       });
       assertWorld(engine.state);

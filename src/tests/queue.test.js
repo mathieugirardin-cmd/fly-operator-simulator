@@ -29,6 +29,7 @@ describe('file 2D reliée aux visiteurs réels de la simulation',()=>{
   });
   it('borne les groupes à la capacité sans créer de visiteurs fantômes',()=>{
     const e=open();e.command('SET_ARRIVAL_RATE',{rate:0});
+    e.command('PRESHOW_AUTO');e.command('SET_LANE',{lane:'standard',field:'capacity',value:240});
     for(let i=0;i<5;i++)expect(e.command('ADD_VISITORS',{amount:40}).status).toBe('accepted');
     expect(e.state.visitors.queue).toBe(240);expect(e.state.visitors.totalArrived).toBe(240);
     expect(e.command('ADD_VISITORS',{amount:20}).status).toBe('pending');
@@ -77,7 +78,7 @@ describe('file 2D reliée aux visiteurs réels de la simulation',()=>{
     data.blocks.forEach(b=>{[b.length,b.maxSpeed]=dimensions[b.id];});
     delete data.visitors.queueOpen;delete data.visitors.arrivalRate;
     const e=new SimulationEngine();e.restore(data);
-    expect(e.state.version).toBe(4);expect(e.state.trains).toHaveLength(6);expect(e.state.visitors.queueOpen).toBe(true);
+    expect(e.state.version).toBe(5);expect(e.state.trains).toHaveLength(6);expect(e.state.visitors.queueOpen).toBe(true);
     expect(e.state.blocks.map(b=>b.length)).toEqual(TRACK.map(b=>b.length));conserved(e);
     const before=e.snapshot();data.visitors.queue++;
     expect(()=>e.restore(data)).toThrow(/conservation/);expect(e.snapshot()).toEqual(before);

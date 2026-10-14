@@ -9,6 +9,7 @@ function open(auto=false) {
   const e=new SimulationEngine();e.command('INITIALIZE');e.command('OPEN');e.command('SET_ARRIVAL_RATE',{rate:0});
   // Prepare the initial cohort through the actual preshow, with locker intake paused.
   e.command('TOGGLE_LOCKER_INTAKE');e.command('SET_FLOW_CONFIG',{field:'capacity',value:48});
+  e.command('SET_FLOW_CONFIG',{field:'groupSize',value:48});
   until(e,()=>e.state.flow.preshow.cycles===1&&e.state.flow.preshow.state==='CLOSED');
   e.command('TOGGLE_LOCKER_INTAKE');
   if(auto){until(e,()=>e.lockers.readyIds().length===20);e.command('SET_MODE',{mode:'auto'});e.command('TOGGLE_DISPATCH');}return e;
@@ -25,7 +26,7 @@ describe('casiers exclusifs et parcours des affaires',()=>{
     expect(e.command('ASSIGN_LOCKER',{lockerId:'C001'}).status).toBe('rejected');
     e.update(LOCKER_CONFIG.reservationDuration);expect(l).toMatchObject({status:'OPEN',doorOpen:true,phase:'DEPOSIT'});
     e.update(LOCKER_CONFIG.depositDuration);expect(l).toMatchObject({status:'OCCUPIED',doorOpen:false,assignedVisitor:1});
-    e.update(2);expect(e.lockers.readyIds()).toEqual([1]);expect(validateSnapshot(e.snapshot())).toBe(true);
+    until(e,()=>e.lockers.readyIds().length===1);expect(e.lockers.readyIds()).toEqual([1]);expect(validateSnapshot(e.snapshot())).toBe(true);
   });
   it('sature la préparation à 40 personnes et à six dépôts simultanés',()=>{
     const e=open();e.update(.1);
@@ -70,7 +71,7 @@ describe('casiers exclusifs et parcours des affaires',()=>{
     e.update(40);expect(e.state.visitors.queue).toBe(48);expect(e.lockers.readyIds()).toHaveLength(0);
     expect(lockerSummary(e.state).faults).toBe(120);
     e.command('REPAIR_LOCKER',{lockerId:'C073'});e.update(3.5);
-    e.update(2);expect(e.lockers.forVisitor(1).id).toBe('C073');expect(e.lockers.readyIds()).toEqual([1]);
+    until(e,()=>e.lockers.readyIds().length===1);expect(e.lockers.forVisitor(1).id).toBe('C073');expect(e.lockers.readyIds()).toEqual([1]);
   });
   it('fige le dépôt pendant une urgence et le reprend après réarmement',()=>{
     const e=open();e.update(1);e.command('EMERGENCY_STOP');const before=structuredClone(e.state.lockers);
@@ -104,7 +105,7 @@ describe('casiers exclusifs et parcours des affaires',()=>{
     const old=e.snapshot();old.version=2;old.trains=old.trains.slice(0,4);delete old.lockers;
     old.trains.forEach(t=>{delete t.passengerIds;delete t.boardingIds;delete t.serviceRequested;});
     const copy=new SimulationEngine();copy.restore(old);
-    expect(copy.state.version).toBe(4);expect(copy.state.trains).toHaveLength(6);
+    expect(copy.state.version).toBe(5);expect(copy.state.trains).toHaveLength(6);
     expect(copy.state.visitors).toEqual(old.visitors);expect(copy.state.stats).toEqual(old.stats);
     expect(validateSnapshot(copy.snapshot())).toBe(true);copy.update(6);
     expect(copy.state.trains[0].passengerIds).toHaveLength(20);

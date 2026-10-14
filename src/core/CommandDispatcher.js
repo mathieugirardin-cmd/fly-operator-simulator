@@ -14,10 +14,12 @@ export class CommandDispatcher {
     const train = stations.train();
     if (!state.initialized) return 'Initialisez le système avant toute opération.';
     if (state.emergency) return "L'arrêt d'urgence doit être acquitté puis réarmé.";
-    if (!state.open) return "L'attraction est fermée.";
+    if (!state.open&&state.service.phase!=='TESTS') return "L'attraction est fermée : sélectionnez Tests ou ouvrez l’exploitation.";
     if (state.hold) return 'Le maintien en gare est actif.';
     if (!state.dispatchEnabled) return "L'autorisation générale de départ est désactivée.";
     if (!train) return "Aucun train immobilisé au quai d'embarquement.";
+    if(state.service.phase==='TESTS'&&train.passengers)return 'Un test doit être effectué à vide.';
+    if(state.service.phase==='OPERATION'&&!train.testValid)return 'Ce train doit terminer un test à vide avant le service visiteurs.';
     if(['gates','sensor','supervision',`harness:${train.id}`,`train:${train.id}`].some(id=>this.engine.maintenance.has(id)))return 'Un équipement nécessaire au départ est en maintenance.';
     if (train.state === 'LOADING') return "L'embarquement est encore en cours.";
     if (state.station.gatesOpen) return "Fermez les portillons d'accès avant le départ.";
@@ -50,6 +52,7 @@ export class CommandDispatcher {
     if (type === 'RESET_EMERGENCY') {
       if (!state.emergency) return rejected("Aucun arrêt d'urgence à réarmer.");
       if (!state.emergencyAcknowledged) return rejected("Acquittez d'abord l'alarme avant le réarmement.");
+      if(state.maintenance.incidents.some(i=>i.status!=='RESOLVED'&&(i.severity==='major'||['gates','sensor','supervision'].includes(i.equipment))))return rejected('Résolvez les défauts critiques avant de réarmer. L’acquittement ne répare pas les équipements.');
       state.emergency = false;
       state.emergencyAcknowledged = false;
       state.dispatchEnabled = false;
@@ -59,12 +62,14 @@ export class CommandDispatcher {
       if (state.emergency) return fault("Réarmez l'arrêt d'urgence avant l'initialisation.");
       if (state.initialized) return rejected('Le système est déjà initialisé.');
       state.initialized = true;
+      state.service.phase='PREPARATION';
       return accepted('Initialisation réussie · acheminement de T01 vers la gare.');
     }
     if (!state.initialized) return rejected('Initialisez le système avant toute opération.');
     if (type === 'CLOSE') {
       if (!state.open) return rejected("L'attraction est déjà fermée.");
       state.open = false;
+      state.service.phase='PREPARATION';
       state.dispatchEnabled = false;
       return accepted('Attraction fermée · les trains en parcours terminent leur cycle.');
     }
@@ -85,8 +90,10 @@ export class CommandDispatcher {
       const count=visitors.add(payload.amount,payload.lane||'standard');
       return count?accepted(`${count} visiteurs ont rejoint la file${count<payload.amount?' · capacité atteinte':''}.`):pending('File complète · attendez des places avant un nouvel accueil.');
     }
+    if(['CALL_MAINTENANCE','VERIFY_REPAIR','RESTORE_EQUIPMENT','SET_PRIORITY'].includes(type))return engine.maintenance.command(type,payload);
     if (state.emergency) return fault("Commande bloquée par l'arrêt d'urgence. Acquittez puis réarmez le système.");
     const flowResult=engine.flow.command(type,payload);if(flowResult)return flowResult;
+    const serviceResult=engine.service.command(type,payload);if(serviceResult)return serviceResult;
     const maintenanceResult=engine.maintenance.command(type,payload);if(maintenanceResult)return maintenanceResult;
     const harnessResult=engine.harness.command(type,payload);if(harnessResult)return harnessResult;
     if(type==='SET_LOCKER_MODE') {
@@ -111,6 +118,7 @@ export class CommandDispatcher {
     }
     if(type==='ADD_ALL_TRAINS') {
       const available=state.trains.filter(t=>t.state==='STORED'&&t.available);
+      if(state.open&&available.some(t=>!t.testValid))return rejected('Fermez l’admission et testez les trains non qualifiés avant leur mise en service.');
       if(!available.length)return rejected('Tous les trains disponibles sont déjà en service.');
       available.forEach(t=>t.serviceRequested=true);
       return accepted(`${available.length} train(s) en attente d’insertion · mise en service progressive selon les cantons.`);
@@ -122,7 +130,9 @@ export class CommandDispatcher {
     }
     if (type === 'OPEN') {
       if (state.open) return rejected("L'attraction est déjà ouverte.");
+      const issue=engine.service.openingIssue();if(issue)return rejected(issue);
       state.open = true;
+      state.service.phase='OPERATION';
       return accepted('Attraction ouverte · accueil des visiteurs autorisé.');
     }
     if (type === 'SET_MODE') {
@@ -132,7 +142,7 @@ export class CommandDispatcher {
       return accepted(`Mode ${payload.mode === 'auto' ? 'automatique' : 'manuel'} sélectionné.`);
     }
     if (type === 'TOGGLE_DISPATCH') {
-      if (!state.open && !state.dispatchEnabled) return rejected("Ouvrez l'attraction avant d'autoriser les départs.");
+      if (!state.open && state.service.phase!=='TESTS' && !state.dispatchEnabled) return rejected("Sélectionnez Tests ou ouvrez l’attraction avant d’autoriser les départs.");
       state.dispatchEnabled = !state.dispatchEnabled;
       return accepted(state.dispatchEnabled ? 'Autorisation générale de départ activée.' : 'Autorisation générale de départ désactivée.');
     }
@@ -146,8 +156,9 @@ export class CommandDispatcher {
       if (!train) return rejected('Identifiant de train inconnu.');
       if (train.state !== 'STORED') return rejected(`${train.id} est déjà en service.`);
       if (!train.available) return fault(`${train.id} est indisponible.`);
+      if(state.open&&!train.testValid)return rejected('Ce train doit être testé à vide ; fermez l’admission puis passez en Préparation et Tests.');
       if (!blocks.enter(train, 'TRANSFER')) {train.serviceRequested=true;return pending(`${train.id} attend le transfert · insertion automatique dès sa libération.`);}
-      transition(train, 'TRANSFER');
+      transition(train, 'INSERTING');train.garageElapsed=0;
       train.removeRequested = false;
       train.serviceRequested = false;
       return accepted(`${train.id} inséré depuis le garage vers l'embarquement.`);
@@ -159,7 +170,7 @@ export class CommandDispatcher {
       if (train.state === 'STORED') return rejected(`${train.id} est déjà au garage.`);
       if (train.removeRequested) return pending(`${train.id} attend son retour au débarquement pour être retiré.`);
       if (train.blockId === 'LOAD' && train.progress >= 1 && train.passengers === 0 && train.state !== 'LOADING') {
-        trains.store(train);
+        if(!trains.store(train)){train.removeRequested=true;return pending('Un transfert garage est déjà engagé ; le retrait attend sa fin.');}
         stations.reset();
         return accepted(`${train.id} garé · emplacement d'embarquement libéré.`);
       }
@@ -170,6 +181,7 @@ export class CommandDispatcher {
       const issue = this.departureIssue();
       if (issue) return rejected(issue);
       const train = stations.train();
+      if(state.service.phase==='TESTS')train.testInProgress=true;
       if (!blocks.enter(train, 'DEPART')) return pending('Le canton de départ vient de devenir indisponible.');
       transition(train, 'DISPATCHED');
       train.departures += 1;
@@ -186,7 +198,7 @@ export class CommandDispatcher {
     if (blocks.get('LOAD').blocked || !train.available) return fault("Le train ou le canton d'embarquement est indisponible.");
     if (type === 'TOGGLE_GATES') {
       if(engine.maintenance.has('gates'))return fault('Portillons indisponibles ; appelez la maintenance.');
-      if (train.state === 'LOADING') return rejected("Attendez la fin de l'embarquement avant de déplacer les portillons.");
+      if (train.state === 'LOADING'&&!state.station.gatesOpen) return rejected('Les passages engagés terminent leur trajet ; attendez avant de rouvrir.');
       if (!state.station.gatesOpen && train.harness !== 'open') return rejected("Ouvrez les harnais avant d'ouvrir les portillons.");
       state.station.gatesOpen = !state.station.gatesOpen;
       state.station.platformClear = false;

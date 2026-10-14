@@ -12,6 +12,7 @@ export function createTrains() {
     dwell: 0, unloadComplete: false, loadingElapsed: 0, loadingTarget: 0, loadingTransferred: 0,
     removeRequested: false, serviceRequested:false, waitingState: null, passengerIds:[],boardingIds:[],
     restraints:createRestraints(),harnessTimer:0,
+    testValid:false,testInProgress:false,garageElapsed:0,
   }));
 }
 
@@ -28,9 +29,11 @@ export class TrainSystem {
     if(requested&&blocks.canEnter('TRANSFER',requested.id))this.engine.command('ADD_TRAIN',{trainId:requested.id});
     for (const train of state.trains) {
       if (!train.blockId || train.state === 'FAULT' || train.state === 'MAINTENANCE') continue;
+      if(train.state==='GARAGING'){if(!this.engine.maintenance.has('garage')){train.garageElapsed=Math.min(3,train.garageElapsed+dt);if(train.garageElapsed>=3)this.finishStore(train);}continue;}
+      if(train.state==='INSERTING'){if(!this.engine.maintenance.has('garage')){train.garageElapsed=Math.min(3,train.garageElapsed+dt);if(train.garageElapsed>=3)transition(train,'TRANSFER');}continue;}
       const block = blocks.get(train.blockId);
       if (block.blocked||this.engine.maintenance.has(`block:${block.id}`)||this.engine.maintenance.has(`train:${train.id}`)||this.engine.maintenance.has('supervision')) { train.speed = 0; continue; }
-      if (train.blockId === 'LOAD' && train.progress >= 1) { train.speed = 0; continue; }
+      if (train.blockId === 'LOAD' && train.progress >= 1) { train.speed = 0;if(train.removeRequested&&!train.passengers&&train.state!=='LOADING'&&this.store(train))stations.reset();continue; }
       if (train.blockId === 'UNLOAD' && train.progress >= 1) {
         train.speed = 0;
         stations.unload(train, dt);
@@ -86,6 +89,13 @@ export class TrainSystem {
   }
   store(train) {
     if(this.engine.maintenance.has('garage'))return false;
+    if(this.engine.state.trains.some(t=>['GARAGING','INSERTING'].includes(t.state)&&t.id!==train.id))return false;
+    if(train.state==='GARAGING')return true;
+    if(train.passengers||train.state==='LOADING')return false;
+    transition(train,'GARAGING');train.speed=0;train.garageElapsed=0;train.removeRequested=false;
+    this.engine.log('info',`${train.id} · transfert visible vers son emplacement au garage.`);return true;
+  }
+  finishStore(train) {
     this.engine.blocks.release(train.id);
     transition(train, 'STORED');
     train.blockId = null;

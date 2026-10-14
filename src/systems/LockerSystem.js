@@ -66,7 +66,7 @@ export class LockerSystem {
       else {l.phase='FREE';l.assignedVisitor=null;}
       l.elapsed=0;refreshLocker(l);
     }
-    for(const person of state.flow.people.filter(p=>p.recheck)) {
+    for(const person of state.flow.people.filter(p=>p.recheck&&p.stage==='lockers')) {
       if(state.lockers.items.filter(l=>['RESERVED','DEPOSIT'].includes(l.phase)).length>=LOCKER_CONFIG.depositCapacity)break;
       const l=this.forVisitor(person.id);if(l?.phase==='STORED'&&!l.fault){l.phase='DEPOSIT';l.elapsed=0;refreshLocker(l);}
     }
@@ -104,7 +104,7 @@ export function validateLockers(state,assert) {
       const owner=l.assignedVisitor;
       assert(Number.isSafeInteger(owner)&&owner>=1&&owner<=state.visitors.totalArrived&&!owners.has(owner),'attribution de casier dupliquée ou invalide.');owners.add(owner);
       if(['RESERVED','DEPOSIT'].includes(l.phase))assert(waiting.has(owner),'visiteur au casier déjà sorti de la file.');
-      if(l.phase==='STORED')assert(waiting.has(owner)||active.has(owner),'casier occupé sans visiteur en attente ou à bord.');
+      if(l.phase==='STORED')assert(waiting.has(owner)||active.has(owner)||state.flow?.egress?.some(p=>p.id===owner&&p.stage==='unloading'),'casier occupé sans visiteur en attente ou à bord.');
       if(l.phase==='RETRIEVAL')assert(!waiting.has(owner)&&!active.has(owner),'récupération avant le débarquement.');
     }
   }

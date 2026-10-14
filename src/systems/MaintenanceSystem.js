@@ -31,7 +31,7 @@ export class MaintenanceSystem {
     const item=m.incidents.find(x=>x.id===p.id);if(!item)return no('Incident inconnu.');
     if(type==='SET_PRIORITY'){if(!Number.isInteger(p.priority)||p.priority<1||p.priority>3||!['OPEN','QUEUED'].includes(item.status))return no('Priorité modifiable uniquement avant intervention.');item.priority=p.priority;return ok('Priorité modifiée.');}
     if(type==='CALL_MAINTENANCE'){if(item.status!=='OPEN')return no('Intervention déjà demandée.');item.status='QUEUED';this.history(item,'Maintenance appelée');return ok('Demande ajoutée à la file des techniciens.');}
-    if(type==='VERIFY_REPAIR'){if(item.status!=='VERIFY')return no('Attendez la fin de la réparation.');if(this.engine.state.emergency)return no('Réarmez avant la vérification finale.');item.status='READY';this.history(item,'Vérification finale conforme');return ok('Vérification conforme ; remise en service disponible.');}
+    if(type==='VERIFY_REPAIR'){if(item.status!=='VERIFY')return no('Attendez la fin de la réparation.');item.status='READY';this.history(item,'Vérification finale statique conforme');return ok('Vérification conforme ; remise en service disponible.');}
     if(item.status!=='READY')return no('Une vérification finale est nécessaire.');
     item.status='RESOLVED';item.resolvedAt=this.engine.state.time;m.resolved++;m.totalRepairTime+=item.resolvedAt-item.startedAt;this.history(item,'Remis en service');
     if(item.severity==='major')m.quietUntil=item.resolvedAt+600;

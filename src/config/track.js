@@ -61,4 +61,4 @@ export function garagePose(index) {
   const [dx,,dz]=GARAGE.direction;
   return {position:[GARAGE.origin[0]-dz*index*GARAGE.spacing,GARAGE.origin[1],GARAGE.origin[2]+dx*index*GARAGE.spacing],tangent:[...GARAGE.direction],bank:0};
 }
-export const SIMULATION_CONFIG=Object.freeze({fixedStep:.1,queueCapacity:240,initialQueue:48,loadingDuration:6,unloadingDuration:2,automaticActionInterval:.7,eventLimit:100});
+export const SIMULATION_CONFIG=Object.freeze({fixedStep:.1,queueCapacity:1000,initialQueue:48,loadingDuration:6,unloadingDuration:2,automaticActionInterval:.7,eventLimit:100});

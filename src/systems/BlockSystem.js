@@ -11,6 +11,7 @@ export class BlockSystem {
   get(id) { return this.engine.state.blocks.find((block) => block.id === id); }
   canEnter(id, trainId) {
     const block = this.get(id);
+    if(id==='TRANSFER'&&this.engine.state.trains.some(t=>t.state==='GARAGING'&&t.id!==trainId))return false;
     if(this.engine.maintenance?.has(`block:${id}`)||this.engine.maintenance?.has('supervision'))return false;
     return Boolean(block && !block.blocked && (!block.occupiedBy || block.occupiedBy === trainId)
       && (!block.reservedBy || block.reservedBy === trainId));

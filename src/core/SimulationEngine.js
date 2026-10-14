@@ -12,6 +12,7 @@ import { FLEET_SIZE } from '../config/operations.js';
 import {FlowSystem,createFlow,flowVisitor,validateFlow} from '../systems/FlowSystem.js';
 import {MaintenanceSystem,createMaintenance,validateMaintenance} from '../systems/MaintenanceSystem.js';
 import {HarnessSystem,createOperations,createRestraints,validateHarness} from '../systems/HarnessSystem.js';
+import {ServiceSystem,createService,validateService} from '../systems/ServiceSystem.js';
 import { LockerSystem,createLockerState,refreshLocker,validateLockers,queueFront } from '../systems/LockerSystem.js';
 
 export { TRAIN_STATES } from './StateMachine.js';
@@ -20,12 +21,13 @@ function initialState(seed) {
   const blocks = createBlocks();
   blocks.find((block) => block.id === 'RETURN').occupiedBy = 'T01';
   return {
-    version: 4, time: 0, initialized: false, open: false, mode: 'manual',
+    version: 5, time: 0, initialized: false, open: false, mode: 'manual',
     emergency: false, emergencyAcknowledged: false, hold: false, dispatchEnabled: false,
     trains: createTrains(), blocks,
     lockers:createLockerState(),
     flow:createFlow(SIMULATION_CONFIG.initialQueue),
     maintenance:createMaintenance(),operations:createOperations(),
+    service:createService(),
     station: { gatesOpen: false, platformClear: false, loadingProgress: 0, autoTimer: 0 },
     visitors: { queue: SIMULATION_CONFIG.initialQueue, boarding: 0, transported: 0, totalArrived: SIMULATION_CONFIG.initialQueue, queueOpen:true, arrivalRate:60 },
     stats: {
@@ -43,7 +45,7 @@ const finite = (value, min = 0, max = Number.MAX_SAFE_INTEGER) => Number.isFinit
 const integer = (value, min = 0, max = Number.MAX_SAFE_INTEGER) => Number.isSafeInteger(value) && value >= min && value <= max;
 const boolean = (value) => typeof value === 'boolean';
 
-export function validateSnapshot(data, definitions=TRACK, version=4) {
+export function validateSnapshot(data, definitions=TRACK, version=5) {
   const assert = (condition, message) => { if (!condition) throw new Error(`Sauvegarde incohérente : ${message}`); };
   assert(isRecord(data) && data.version === version, 'format ou version non pris en charge.');
   assert(finite(data.time), 'horloge invalide.');
@@ -52,7 +54,7 @@ export function validateSnapshot(data, definitions=TRACK, version=4) {
   }
   assert(['manual','auto'].includes(data.mode), "mode d'exploitation invalide.");
   assert(!data.open || data.initialized, "attraction ouverte sans initialisation.");
-  assert(!data.dispatchEnabled || (data.initialized && data.open && !data.emergency), 'autorisation de départ incohérente.');
+  assert(!data.dispatchEnabled || (data.initialized && (data.open||version>=5&&data.service?.phase==='TESTS') && !data.emergency), 'autorisation de départ incohérente.');
   assert(integer(data.rngState, 0, 0xffffffff), 'générateur aléatoire invalide.');
   assert(finite(data.clockAccumulator, 0, SIMULATION_CONFIG.fixedStep - Number.EPSILON), 'accumulateur temporel invalide.');
   assert(finite(data.arrivalTimer, 0, 1 + 1e-9), 'minuterie des arrivées invalide.');
@@ -90,7 +92,7 @@ export function validateSnapshot(data, definitions=TRACK, version=4) {
   let boarding = 0;
   let departures = 0;
   const routeStates = {
-    RETURN: ['TRANSFER','BLOCKED'], TRANSFER: ['TRANSFER','BLOCKED'],
+    RETURN: ['TRANSFER','BLOCKED'], TRANSFER: ['TRANSFER','BLOCKED','INSERTING'],
     DEPART: ['DISPATCHED','BLOCKED'], LAUNCH1: ['ON_TRACK','BLOCKED'],
     COURSE1: ['ON_TRACK','BLOCKED'], LAUNCH2: ['ON_TRACK','BLOCKED'],
     COURSE2: ['ON_TRACK','BLOCKED'], BRAKES: ['BRAKING','BLOCKED'],
@@ -117,9 +119,9 @@ export function validateSnapshot(data, definitions=TRACK, version=4) {
       assert(train.state !== 'STORED' && train.state !== 'MAINTENANCE', `train ${train.id} garé sur le circuit.`);
       if (train.state !== 'FAULT') {
         if (train.blockId === 'LOAD') {
-          assert(train.progress < 1 ? train.state === 'TRANSFER' : ['EMPTY','LOADING','CHECKING','READY'].includes(train.state), `phase d'embarquement de ${train.id} invalide.`);
+          assert(train.progress < 1 ? train.state === 'TRANSFER' : ['EMPTY','LOADING','CHECKING','READY',...(version>=5?['GARAGING']:[])].includes(train.state), `phase d'embarquement de ${train.id} invalide.`);
         } else if (train.blockId === 'UNLOAD') {
-          assert(train.progress < 1 ? train.state === 'TRANSFER' : ['UNLOADING','BLOCKED'].includes(train.state), `phase de débarquement de ${train.id} invalide.`);
+          assert(train.progress < 1 ? train.state === 'TRANSFER' : ['UNLOADING','BLOCKED',...(version>=5?['GARAGING']:[])].includes(train.state), `phase de débarquement de ${train.id} invalide.`);
         } else assert(routeStates[train.blockId]?.includes(train.state), `phase de parcours de ${train.id} invalide.`);
       }
     }
@@ -138,7 +140,7 @@ export function validateSnapshot(data, definitions=TRACK, version=4) {
   assert(!data.station.gatesOpen || !data.station.platformClear, 'quai libre avec portillons ouverts.');
   const atPlatform = data.trains.find((train) => train.blockId === 'LOAD' && train.progress >= 1);
   assert(!data.station.gatesOpen || (atPlatform && atPlatform.harness === 'open'), 'portillons ouverts sans train accessible.');
-  assert(!boarding || (data.station.gatesOpen && atPlatform?.state === 'LOADING'), 'embarquement sans accès ouvert.');
+  assert(!boarding || ((version>=5||data.station.gatesOpen) && atPlatform?.state === 'LOADING'), 'embarquement sans accès ouvert.');
   assert(isRecord(data.visitors) && integer(data.visitors.queue, 0, SIMULATION_CONFIG.queueCapacity)
     && integer(data.visitors.boarding, 0, 20) && integer(data.visitors.transported) && integer(data.visitors.totalArrived), 'compteurs visiteurs invalides.');
   assert(data.visitors.boarding === boarding, 'visiteurs en embarquement désynchronisés.');
@@ -146,6 +148,7 @@ export function validateSnapshot(data, definitions=TRACK, version=4) {
   assert(data.visitors.queue + boarding + trainPassengers + data.visitors.transported + (version>=4?data.flow?.metrics.exited||0:0) === data.visitors.totalArrived, 'conservation des visiteurs violée.');
   if(version>=4)validateFlow(data,assert);
   if(version>=4){validateMaintenance(data,assert);validateHarness(data,assert);}
+  if(version>=5)validateService(data,assert);
   if(version>=3)validateLockers(data,assert);
   assert(isRecord(data.stats), 'statistiques absentes.');
   for (const field of ['transported','dispatches','activeTrains','incidents','totalDispatchedPassengers','hourlyThroughput','estimatedWait']) assert(integer(data.stats[field]), `statistique ${field} invalide.`);
@@ -184,6 +187,7 @@ export class SimulationEngine {
     this.flow = new FlowSystem(this);
     this.maintenance = new MaintenanceSystem(this);
     this.harness = new HarnessSystem(this);
+    this.service = new ServiceSystem(this);
     this.lockers = new LockerSystem(this);
     this.statistics = new StatisticsSystem(this);
     this.dispatcher = new CommandDispatcher(this);
@@ -274,6 +278,15 @@ export class SimulationEngine {
       candidate.version=4;
       candidate.maintenance=createMaintenance();candidate.operations=createOperations();
       for(const t of candidate.trains){t.restraints=createRestraints();t.harnessTimer=0;t.passengerIds.forEach((id,i)=>{t.restraints[i]={visitorId:id,state:t.harness==='open'?'OPEN':t.rows[Math.floor(i/2)]?'VERIFIED':'CLOSED'};});}
+    }
+    if(candidate?.version===4) {
+      validateSnapshot(candidate,TRACK,4);
+      candidate.service={phase:candidate.open?'OPERATION':candidate.initialized?'PREPARATION':'CLOSED'};
+      for(const t of candidate.trains){t.testValid=true;t.testInProgress=false;t.garageElapsed=0;}
+      const f=candidate.flow;f.egress=[];f.room={lockerCapacity:120,securityCapacity:24,readyCapacity:40,lockerBatch:20,travelDuration:2,queueCapacity:1000};f.metrics.departed=candidate.visitors.transported;
+      Object.assign(f.preshow,{groupSize:Math.min(20,f.preshow.capacity),entryRate:2,exitRate:2,entranceOpen:['OPENING','FILLING','FULL'].includes(f.preshow.state),exitOpen:f.preshow.state==='EXITING'});
+      f.lanes.standard.capacity=Math.max(400,f.lanes.standard.capacity);for(const p of f.people)p.transit=null;
+      candidate.version=5;
     }
     validateSnapshot(candidate);
     this.state = candidate;

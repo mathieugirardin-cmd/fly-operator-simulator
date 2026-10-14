@@ -1,11 +1,13 @@
 import './styles/main.css';
 import './styles/operations.css';
+import './styles/console.css';
 import { SimulationEngine } from './core/SimulationEngine.js';
 import { ThreeRenderer } from './rendering/ThreeRenderer.js';
 import { Map2DRenderer } from './rendering/Map2DRenderer.js';
 import { Queue2DRenderer } from './rendering/Queue2DRenderer.js';
 import { LockerPanel } from './ui/LockerPanel.js';
 import {OperationsPanel} from './ui/OperationsPanel.js';
+import {ConsoleLayout} from './ui/ConsoleLayout.js';
 import { TRACK } from './config/track.js';
 import { Dashboard } from './ui/Dashboard.js';
 import { SaveManager } from './services/SaveManager.js';
@@ -17,6 +19,7 @@ let map;
 let queueView;
 let lockerPanel;
 let operationsPanel;
+let consoleLayout;
 let lastDraw = 0;
 let lastAutosave = 0;
 let saveInFlight = false;
@@ -29,10 +32,11 @@ const ui = new Dashboard(document.querySelector('#app'), {
     queueView?.update(engine.state,0);
     lockerPanel?.update(engine.state);
     operationsPanel?.update(engine.state);
+    consoleLayout?.update(engine.state);
     if(type==='CHECK_ROW'&&result.status==='rejected'&&operationsPanel){const t=engine.stations.train();const index=t?.restraints.findIndex((r,i)=>Math.floor(i/2)===payload.index&&['MISPOSITION','RECHECK','UNFIT','TECHNICAL'].includes(r.state));if(index>=0){operationsPanel.selectedSeat=index;operationsPanel.update(engine.state);ui.navigate('flow-harness');}}
   },
   departureIssue: () => engine.dispatcher.departureIssue(),
-  navigate(id){if(engine.state.flow.security.controlled&&!['operations-workbench','flow-security'].includes(id)&&!(id==='operations'&&ui.activeCamera==='security'))engine.command('SECURITY_CONTROL',{id:null});},
+  navigate(id){if(engine.state.flow.security.controlled&&!['operations-workbench','flow-security','operations'].includes(id))engine.command('SECURITY_CONTROL',{id:null});if(consoleLayout){if(id==='operations'||id==='map'){consoleLayout.drawer.close();if(id==='map')ui.setCamera('overview');return true;}return consoleLayout.openDrawer(id);}},
   camera(id) { renderer?.setCamera(id); },
   quality(value) { renderer?.setQuality(value); ui.toast('Qualité graphique appliquée.'); },
   mapMode(mode) {map?.setMode(mode);},
@@ -78,6 +82,8 @@ lockerPanel.update(engine.state);
 const workbench=document.createElement('section');workbench.className='panel operations-panel';workbench.id='operations-workbench';document.querySelector('#visitors').after(workbench);
 operationsPanel=new OperationsPanel(workbench,{onCommand:(type,payload)=>ui.handlers.command(type,payload),onCamera:id=>{ui.setCamera(id);ui.navigate('operations');},onNavigate:id=>ui.navigate(id)});
 operationsPanel.update(engine.state);
+consoleLayout=new ConsoleLayout(document.querySelector('#app'),{onCommand:(type,payload)=>ui.handlers.command(type,payload),onCamera:id=>ui.setCamera(id),onDrawer:id=>ui.navigate(id),onSeat:index=>{operationsPanel.selectedSeat=index;operationsPanel.update(engine.state);},onToast:(message,status)=>ui.toast(message,status)});
+consoleLayout.update(engine.state);
 ui.setCamera('station');
 
 function showRendererError(error) {
@@ -129,7 +135,7 @@ function frame(now) {
   if(!document.hidden) {
     engine.update(Math.min(dt,1));
     renderer?.update(engine.state,dt);
-    if(now-lastDraw>=100) {ui.update(engine.state);map?.update(engine.state);queueView?.update(engine.state,Math.min(.3,(now-lastDraw)/1000));lockerPanel?.update(engine.state);operationsPanel?.update(engine.state);lastDraw=now;}
+    if(now-lastDraw>=100) {ui.update(engine.state);map?.update(engine.state);queueView?.update(engine.state,Math.min(.3,(now-lastDraw)/1000));lockerPanel?.update(engine.state);operationsPanel?.update(engine.state);consoleLayout?.update(engine.state);lastDraw=now;}
     if(engine.state.initialized && now-lastAutosave>=30000) {lastAutosave=now;saveGame();}
   }
   requestAnimationFrame(frame);

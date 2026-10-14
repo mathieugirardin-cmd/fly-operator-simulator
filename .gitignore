@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.sites-runtime/
+.pnpm-store/
+.qa/
+*.log
+/fly-operator-simulator-v*.zip

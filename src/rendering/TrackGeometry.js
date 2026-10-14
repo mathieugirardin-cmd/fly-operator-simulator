@@ -65,6 +65,13 @@ export function getSegmentSamples(segmentOrId, count = 48) {
 export function getScenicLength(segmentOrId) { return curveFor(segmentOrId)?.length ?? 0; }
 
 export function getTrainPose(train) {
+  if(train.state==='INSERTING'){
+    const start=garagePose(Math.max(0,Number(train.id.slice(1))-1)),end=sampleTrack('TRANSFER',0),t=clamp(train.garageElapsed/3,0,1);return {...end,position:mix(start.position,end.position,t)};
+  }
+  if(train.state==='GARAGING'){
+    const start=sampleTrack(train.blockId,1),end=garagePose(Math.max(0,Number(train.id.slice(1))-1)),t=clamp(train.garageElapsed/3,0,1);
+    return {...end,position:mix(start.position,end.position,t)};
+  }
   if (!train.blockId || train.state === 'STORED' || train.state === 'MAINTENANCE') {
     const index = Math.max(0, (Number(String(train.id).replace(/\D/g, '')) || 1) - 1);
     return garagePose(index);

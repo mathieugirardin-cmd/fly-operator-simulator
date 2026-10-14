@@ -80,7 +80,7 @@ export class TrainRenderer {
   update(train, dt = .016) {
     const alpha = 1 - Math.exp(-Math.min(dt, .1) * 9);
     const pose = getTrainPose(train);
-    const isStored = !train.blockId || train.state === 'STORED' || train.state === 'MAINTENANCE';
+    const isStored = !train.blockId || train.state === 'STORED' || train.state === 'MAINTENANCE'||['GARAGING','INSERTING'].includes(train.state);
     this.rotation += ((Number(train.rotation) || 0) - this.rotation) * alpha;
     const harnessTarget = train.harness === 'closed' ? 0 : 1;
     this.harness += (harnessTarget - this.harness) * alpha;
