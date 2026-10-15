@@ -33,7 +33,7 @@ describe('mise en service et pupitre intégré',()=>{
   });
   it('fermer les portiques termine les passages engagés et bloque le départ jusqu’à la validation',()=>{
     const e=create();operational(e);e.command('SET_MODE',{mode:'manual'});until(e,()=>e.stations.train()&&e.lockers.readyIds().length>=10);
-    const t=e.stations.train();e.command('TOGGLE_GATES');e.update(.8);e.command('LOAD');const count=t.loadingTarget;e.update(1);expect(e.command('TOGGLE_GATES').status).toBe('accepted');expect(e.state.station.gatesOpen).toBe(false);expect(e.command('DISPATCH').status).toBe('rejected');e.update(5);expect(t.passengers).toBe(count);
+    const t=e.stations.train();expect(e.command('PREPARE_PLATFORM').status).toBe('accepted');e.command('TOGGLE_GATES');e.update(.8);expect(e.command('LOAD').status).toBe('accepted');const count=t.loadingTarget;expect(count).toBeGreaterThan(0);e.update(1);expect(e.command('TOGGLE_GATES').status).toBe('accepted');expect(e.state.station.gatesOpen).toBe(false);expect(e.command('DISPATCH').status).toBe('rejected');e.update(5);expect(t.passengers).toBe(count);
     e.command('CLOSE_HARNESSES');e.update(.8);e.command('CHECK_ALL');e.command('OPEN_HARNESSES');expect(t.rows.every(x=>!x)).toBe(true);expect(e.command('DISPATCH').status).toBe('rejected');expect(validateSnapshot(e.snapshot())).toBe(true);
   });
   it('affiche un transfert garage progressif en conservant la section jusqu’à sa fin',()=>{
@@ -60,6 +60,6 @@ describe('mise en service et pupitre intégré',()=>{
   });
   it('migre une sauvegarde V4 en conservant les visiteurs et les trains déjà qualifiés',()=>{
     const e=create();operational(e);const old=e.snapshot();old.version=4;delete old.service;delete old.flow.egress;delete old.flow.room;for(const t of old.trains){delete t.testValid;delete t.testInProgress;delete t.garageElapsed;}
-    const copy=new SimulationEngine();copy.restore(old);expect(copy.state.version).toBe(6);expect(copy.state.service.phase).toBe('OPERATION');expect(copy.state.visitors).toEqual(e.state.visitors);expect(copy.state.trains.every(t=>t.testValid)).toBe(true);expect(validateSnapshot(copy.snapshot())).toBe(true);
+    const copy=new SimulationEngine();copy.restore(old);expect(copy.state.version).toBe(8);expect(copy.state.service.phase).toBe('OPERATION');expect(copy.state.visitors).toEqual(e.state.visitors);expect(copy.state.trains.every(t=>t.testValid)).toBe(true);expect(validateSnapshot(copy.snapshot())).toBe(true);
   });
 });

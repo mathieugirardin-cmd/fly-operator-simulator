@@ -78,7 +78,7 @@ describe('file 2D reliée aux visiteurs réels de la simulation',()=>{
     data.blocks.forEach(b=>{[b.length,b.maxSpeed]=dimensions[b.id];});
     delete data.visitors.queueOpen;delete data.visitors.arrivalRate;
     const e=new SimulationEngine();e.restore(data);
-    expect(e.state.version).toBe(6);expect(e.state.trains).toHaveLength(6);expect(e.state.visitors.queueOpen).toBe(true);
+    expect(e.state.version).toBe(8);expect(e.state.trains).toHaveLength(6);expect(e.state.visitors.queueOpen).toBe(true);
     expect(e.state.blocks.map(b=>b.length)).toEqual(TRACK.map(b=>b.length));conserved(e);
     const before=e.snapshot();data.visitors.queue++;
     expect(()=>e.restore(data)).toThrow(/conservation/);expect(e.snapshot()).toEqual(before);

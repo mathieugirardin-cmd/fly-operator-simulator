@@ -43,6 +43,7 @@ describe('casiers exclusifs et parcours des affaires',()=>{
     expect(e.command('ASSIGN_LOCKER',{lockerId:l.id}).status).toBe('rejected');
     expect(e.command('REPAIR_LOCKER',{lockerId:l.id}).status).toBe('accepted');
     until(e,()=>e.lockers.readyIds().length===20);expect(e.lockers.readyIds()).toHaveLength(20);
+    e.command('TOGGLE_GATES');e.update(.8);expect(e.command('PREPARE_PLATFORM').status).toBe('accepted');e.command('TOGGLE_GATES');e.update(.8);
     expect(e.command('LOAD').status).toBe('accepted');expect(e.state.trains[0].boardingIds[0]).toBe(1);
     expect(validateSnapshot(e.snapshot())).toBe(true);
   });
@@ -105,7 +106,7 @@ describe('casiers exclusifs et parcours des affaires',()=>{
     const old=e.snapshot();old.version=2;old.trains=old.trains.slice(0,4);delete old.lockers;
     old.trains.forEach(t=>{delete t.passengerIds;delete t.boardingIds;delete t.serviceRequested;});
     const copy=new SimulationEngine();copy.restore(old);
-    expect(copy.state.version).toBe(6);expect(copy.state.trains).toHaveLength(6);
+    expect(copy.state.version).toBe(8);expect(copy.state.trains).toHaveLength(6);
     expect(copy.state.visitors).toEqual(old.visitors);expect(copy.state.stats).toEqual(old.stats);
     expect(validateSnapshot(copy.snapshot())).toBe(true);copy.update(6);
     expect(copy.state.trains[0].passengerIds).toHaveLength(20);

@@ -1,13 +1,14 @@
 // Fictional visitor operations. Each waiting visitor has exactly one physical stage.
+import {LANE_NAMES,createLane,createPass,createFastScanner,validateAdmissions} from './AdmissionSystem.js';
 export const INVENTORY=['Pièces de monnaie','Téléphone','Clés','Objet libre','Écharpe','Accessoire flottant','Sac'];
 export const PRESHOW_STATES=['CLOSED','OPENING','FILLING','FULL','READY','PLAYING','FINISHED','EXITING','INCIDENT'];
 export const FLOW_STAGES=['queue','preshow','lockers','security','ready','transit'];
-export const flowVisitor=(id,time=0,lane='standard')=>({id,lane,stage:'queue',arrivedAt:time,inventory:[],recheck:false,transit:null});
+export const flowVisitor=(id,time=0,lane='standard')=>({id,lane,stage:'queue',arrivedAt:time,fastPass:lane==='fast'?createPass():null,inventory:[],recheck:false,transit:null});
 export function createFlow(count=48) {
   return {
-    arrivals:{totalRate:60,fastPercent:20,timer:0,cursor:0},people:Array.from({length:count},(_,i)=>flowVisitor(i+1)),order:[],mergeCursor:0,egress:[],room:{lockerDoorOpen:true,lockerCapacity:120,securityCapacity:24,readyCapacity:40,lockerBatch:20,travelDuration:2,queueCapacity:1000},
-    lanes:{standard:{open:true,capacity:600,rate:60,timer:0,arrived:count,admitted:0,wait:null,history:[]},fast:{open:true,capacity:160,rate:0,timer:0,arrived:0,admitted:0,wait:null,history:[]}},
-    ratio:3,preshow:{state:'CLOSED',auto:true,capacity:80,groupSize:20,entryRate:2,exitRate:2,exitTotal:0,duration:8,entranceOpen:false,exitOpen:false,elapsed:0,admissionTimer:0,batch:[],resume:null,cycles:0},
+    arrivals:{totalRate:60,fastPercent:20,singlePercent:10,singleCursor:0,timer:0,cursor:0},people:Array.from({length:count},(_,i)=>flowVisitor(i+1)),order:[],mergeCursor:0,egress:[],room:{lockerDoorOpen:true,lockerCapacity:120,securityCapacity:24,readyCapacity:40,lockerBatch:20,travelDuration:2,queueCapacity:1000},
+    fastScanner:createFastScanner(),lanes:{single:createLane(120),standard:{open:true,capacity:600,rate:60,timer:0,arrived:count,admitted:0,wait:null,history:[]},fast:{open:true,capacity:160,rate:0,timer:0,arrived:0,admitted:0,wait:null,history:[]}},
+    ratio:3,preshow:{state:'CLOSED',auto:true,capacity:80,groupSize:20,entryRate:2,exitRate:2,exitTotal:0,plannedRegular:null,singleAssigned:[],singlePending:[],singleExtra:0,duration:8,entranceOpen:false,exitOpen:false,elapsed:0,admissionTimer:0,batch:[],resume:null,cycles:0},
     security:{controlled:null,stations:['SEC-01','SEC-02'].map(id=>({id,open:true,visitorId:null,elapsed:0,inspected:false,extra:false})),duration:2,rules:INVENTORY.map(()=>true)},
     metrics:{checks:0,returns:0,penalties:0,waitSum:0,boarded:0,exited:0,departed:0,dispatches:[],deposits:[],checksHistory:[],admissions:[],historyTimer:0},
   };
@@ -20,8 +21,14 @@ export class FlowSystem {
   occupancy(stage){return this.engine.state.flow.people.filter(p=>p.stage===stage||p.stage==='transit'&&p.transit?.to===stage).length;}
   move(person,to){person.transit={from:person.stage,to,remaining:this.engine.state.flow.room.travelDuration,duration:this.engine.state.flow.room.travelDuration};person.stage='transit';}
   selectNext() {
-    const f=this.engine.state.flow,standard=f.people.find(p=>p.stage==='queue'&&p.lane==='standard'),fast=f.people.find(p=>p.stage==='queue'&&p.lane==='fast');
-    if(!standard)return fast;if(!fast)return standard;
+    const f=this.engine.state.flow,standard=f.people.find(p=>p.stage==='queue'&&p.lane==='standard'),fast=f.people.find(p=>p.stage==='queue'&&p.lane==='fast'&&p.fastPass.checked&&!p.fastPass.consumed),show=f.preshow;
+    const regularCount=f.people.filter(p=>p.lane!=='single'&&(p.stage==='preshow'||p.transit?.to==='preshow')).length;
+    const single=f.people.find(p=>p.id===show.singlePending[0])||f.people.find(p=>p.stage==='queue'&&p.lane==='single');
+    if(show.singlePending.length&&regularCount>=(show.plannedRegular??show.groupSize))return single;
+    if(!standard&&!fast)return single;
+    if(show.auto&&single&&!show.singlePending.length&&(show.batch.length+f.people.filter(p=>p.transit?.to==='preshow').length)%5===4)return single;
+    if(!standard)return fast||single;
+    if(!fast){const waiting=f.people.some(p=>p.stage==='queue'&&p.lane==='fast');if(waiting&&![null,'valid'].includes(f.fastScanner.result))return standard;if(waiting&&f.mergeCursor>=f.ratio)return null;if(waiting)f.mergeCursor++;return standard;}
     const person=f.mergeCursor<f.ratio?standard:fast;f.mergeCursor=(f.mergeCursor+1)%(f.ratio+1);return person;
   }
   command(type,p={}) {
@@ -29,7 +36,8 @@ export class FlowSystem {
     const ok=message=>({status:'accepted',message}),no=message=>({status:'rejected',message});
     if(type==='SET_ARRIVALS'){
       const a=f.arrivals;
-      if(!['totalRate','fastPercent'].includes(p.field)||!Number.isInteger(p.value)||p.value<0||p.value>(p.field==='totalRate'?240:100))return no('Débit total ou proportion Fast Pass invalide.');
+      if(!['totalRate','fastPercent','singlePercent'].includes(p.field)||!Number.isInteger(p.value)||p.value<0||p.value>(p.field==='totalRate'?240:100))return no('Débit total ou proportion Fast Pass invalide.');
+      if(p.field==='fastPercent'&&p.value+a.singlePercent>100||p.field==='singlePercent'&&p.value+a.fastPercent>100)return no('Les proportions cumulées ne peuvent pas dépasser 100 %.');
       a[p.field]=p.value;return ok('Arrivées totales partagées entre les deux files.');
     }
     if(type==='SET_FLOW_CONFIG') {
@@ -44,21 +52,21 @@ export class FlowSystem {
     if(type==='SET_LANE') {
       const lane=f.lanes[p.lane];if(!lane)return no('File inconnue.');
       if(p.field==='open'&&typeof p.value==='boolean')lane.open=p.value;
-      else if(p.field==='rate'&&Number.isInteger(p.value)&&p.value>=0&&p.value<=120)lane.rate=p.value;
+      else if(p.field==='rate'&&Number.isInteger(p.value)&&p.value>=0&&p.value<=120&&Object.entries(f.lanes).reduce((n,[key,l])=>n+(key===p.lane?p.value:l.rate),0)<=240)lane.rate=p.value;
       else if(p.field==='capacity'&&Number.isInteger(p.value)&&p.value>=1&&p.value<=800&&p.value>=f.people.filter(v=>v.stage==='queue'&&v.lane===p.lane).length)lane.capacity=p.value;
       else return no('Réglage de file invalide ou capacité inférieure à son occupation.');
-      if(p.field==='rate'){const total=f.lanes.standard.rate+f.lanes.fast.rate;f.arrivals.totalRate=total;f.arrivals.fastPercent=total?f.lanes.fast.rate/total*100:0;}
+      if(p.field==='rate'){const total=Object.values(f.lanes).reduce((n,l)=>n+l.rate,0);f.arrivals.totalRate=total;f.arrivals.fastPercent=total?f.lanes.fast.rate/total*100:0;f.arrivals.singlePercent=total?f.lanes.single.rate/total*100:0;}
       if(p.lane==='standard'){s.visitors.queueOpen=lane.open;s.visitors.arrivalRate=lane.rate;}return ok('File mise à jour.');
     }
     if(type==='PRESHOW_AUTO'){show.auto=!show.auto;return ok(show.auto?'Préshow automatique.':'Préshow sous contrôle manuel.');}
     if(type==='TOGGLE_LOCKER_DOOR'){f.room.lockerDoorOpen=!f.room.lockerDoorOpen;return ok(f.room.lockerDoorOpen?'Passage vers les casiers ouvert.':'Passage fermé ; les trajets engagés se terminent.');}
     if(type==='PRESHOW_OPEN') {
       if(!s.open||show.state!=='CLOSED'||this.blocked('preshow'))return no('Ouvrez l’attraction ; la salle doit être vide et disponible.');
-      show.state='OPENING';show.entranceOpen=true;show.exitOpen=false;show.elapsed=0;return ok('Ouverture des portes d’entrée.');
+      show.plannedRegular=Math.min(show.groupSize,f.people.filter(p=>p.stage==='queue'&&p.lane!=='single').length);show.singleAssigned=[];show.singlePending=[];show.singleExtra=0;show.state='OPENING';show.entranceOpen=true;show.exitOpen=false;show.elapsed=0;return ok('Ouverture des portes d’entrée.');
     }
     if(type==='PRESHOW_CLOSE') {
       if(!['FILLING','FULL'].includes(show.state))return no('La salle ne reçoit pas de visiteurs.');
-      show.entranceOpen=false;show.elapsed=0;
+      show.entranceOpen=false;show.singleExtra=Math.max(0,show.singleExtra-show.singlePending.length);show.singleAssigned=show.singleAssigned.filter(id=>!show.singlePending.includes(id));show.singlePending=[];show.elapsed=0;
       if(!f.people.some(p=>p.transit?.to==='preshow'))show.state=show.batch.length?'READY':'CLOSED';
       return ok('Portes d’entrée fermées ; les passages déjà engagés se terminent.');
     }
@@ -122,6 +130,7 @@ export class FlowSystem {
         if(person.remaining<=1e-9){if(person.stage==='unloading'){this.engine.lockers.retrieve([person.id]);person.stage='retrieval';}else{this.engine.score.exit(person.id);f.egress.splice(f.egress.indexOf(person),1);f.metrics.departed++;}}
       }
     }
+    this.engine.admissions.update(dt);
     if(this.blocked('preshow')){if(show.state!=='INCIDENT'){show.resume=show.state;show.state='INCIDENT';}}
     else if(show.state==='INCIDENT'){show.state=show.resume||'CLOSED';show.resume=null;}
     if(show.state!=='INCIDENT') {
@@ -131,9 +140,9 @@ export class FlowSystem {
       if(show.state==='OPENING'&&show.elapsed>=1-1e-9){show.state='FILLING';show.elapsed=0;show.admissionTimer=0;}
       if(show.state==='FILLING'&&!wasOpening&&s.open&&show.entranceOpen) {
         show.admissionTimer+=dt;
-        while(show.admissionTimer>=1/show.entryRate-1e-9&&this.occupancy('preshow')<Math.min(show.capacity,show.groupSize)){show.admissionTimer=Math.max(0,show.admissionTimer-1/show.entryRate);const p=this.selectNext();if(!p){show.admissionTimer=0;break;}this.move(p,'preshow');f.lanes[p.lane].admitted++;}
+        while(show.admissionTimer>=1/show.entryRate-1e-9&&this.occupancy('preshow')<Math.min(show.capacity,show.groupSize+show.singleExtra)){show.admissionTimer=Math.max(0,show.admissionTimer-1/show.entryRate);const p=this.selectNext();if(!p){show.admissionTimer=0;break;}this.engine.admissions.admitted(p);this.move(p,'preshow');f.lanes[p.lane].admitted++;}
         show.admissionTimer=Math.min(show.admissionTimer,1/show.entryRate);
-        if(this.occupancy('preshow')>=Math.min(show.capacity,show.groupSize))show.state='FULL';
+        if(this.occupancy('preshow')>=Math.min(show.capacity,show.groupSize+show.singleExtra))show.state='FULL';
       }
       if(show.auto&&s.open&&((show.state==='FILLING'&&show.elapsed>=5&&show.batch.length&&!f.people.some(p=>p.stage==='queue'))||show.state==='FULL')&&show.entranceOpen)this.command('PRESHOW_CLOSE');
       if(['FILLING','FULL'].includes(show.state)&&!show.entranceOpen&&!f.people.some(p=>p.transit?.to==='preshow')){show.state=show.batch.length?'READY':'CLOSED';show.elapsed=0;}
@@ -169,7 +178,7 @@ export class FlowSystem {
   }
   board(ids) {
     const s=this.engine.state,f=s.flow,set=new Set(ids);
-    for(const p of f.people)if(set.has(p.id)){this.engine.score.commit(p.id,p.arrivedAt);}
+    for(const p of f.people)if(set.has(p.id)){this.engine.score.commit(p.id,p.arrivedAt);s.score.journeys[p.id].lane=p.lane;}
     f.people=f.people.filter(p=>!set.has(p.id));f.order=f.order.filter(id=>!set.has(id));
   }
 }
@@ -178,7 +187,7 @@ export function validateFlow(s,assert) {
   const f=s.flow,show=f?.preshow;assert(f&&show&&Array.isArray(f.people)&&f.people.length===s.visitors.queue,'flux visiteurs incohérent.');
   assert(Number.isInteger(f.ratio)&&f.ratio>=1&&f.ratio<=10&&Number.isInteger(f.mergeCursor)&&f.mergeCursor>=0&&f.mergeCursor<=f.ratio,'fusion des files invalide.');
   const ids=new Set();
-  for(const p of f.people){assert(Number.isSafeInteger(p.id)&&p.id>0&&p.id<=s.visitors.totalArrived&&!ids.has(p.id),'identité de visiteur dupliquée.');ids.add(p.id);assert(['standard','fast'].includes(p.lane)&&FLOW_STAGES.includes(p.stage)&&Number.isFinite(p.arrivedAt)&&p.arrivedAt>=0&&p.arrivedAt<=s.time&&typeof p.recheck==='boolean'&&Array.isArray(p.inventory)&&p.inventory.every(i=>Number.isInteger(i)&&i>=0&&i<INVENTORY.length),'visiteur invalide.');}
+  for(const p of f.people){assert(Number.isSafeInteger(p.id)&&p.id>0&&p.id<=s.visitors.totalArrived&&!ids.has(p.id),'identité de visiteur dupliquée.');ids.add(p.id);assert((s.version>=7?LANE_NAMES:['standard','fast']).includes(p.lane)&&FLOW_STAGES.includes(p.stage)&&Number.isFinite(p.arrivedAt)&&p.arrivedAt>=0&&p.arrivedAt<=s.time&&typeof p.recheck==='boolean'&&Array.isArray(p.inventory)&&p.inventory.every(i=>Number.isInteger(i)&&i>=0&&i<INVENTORY.length),'visiteur invalide.');}
   const order=f.people.filter(p=>['lockers','security','ready'].includes(p.stage)||p.transit&&p.transit.to!=='preshow');
   assert(Array.isArray(f.order)&&f.order.length===order.length&&new Set(f.order).size===f.order.length&&f.order.every(id=>order.some(p=>p.id===id)),'ordre après préshow invalide.');
   assert(PRESHOW_STATES.includes(show.state)&&typeof show.auto==='boolean'&&Number.isInteger(show.capacity)&&show.capacity>=1&&show.capacity<=120&&Number.isInteger(show.duration)&&show.duration>=5&&show.duration<=180,'configuration préshow invalide.');
@@ -188,12 +197,13 @@ export function validateFlow(s,assert) {
   assert(PRESHOW_STATES.includes(phase)&&phase!=='INCIDENT'&&(show.state==='INCIDENT'||show.resume===null),'reprise préshow invalide.');
   assert(!['CLOSED','OPENING'].includes(phase)||!show.batch.length,'salle fermée encore occupée.');
   assert(!['READY','PLAYING','FINISHED','EXITING'].includes(phase)||show.batch.length>0||s.version>=5&&phase==='EXITING'&&f.people.some(p=>p.transit?.from==='preshow'),'préshow actif sans visiteur.');
-  assert(phase!=='FULL'||show.batch.length+f.people.filter(p=>p.transit?.to==='preshow').length===Math.min(show.capacity,show.groupSize||show.capacity),'salle complète incohérente.');
-  for(const key of ['standard','fast']){const l=f.lanes[key];assert(l&&typeof l.open==='boolean'&&Number.isInteger(l.capacity)&&l.capacity>=1&&l.capacity<=800&&Number.isInteger(l.rate)&&l.rate>=0&&l.rate<=120&&Number.isFinite(l.timer)&&l.timer>=0&&l.timer<=1&&Array.isArray(l.history)&&l.history.length<=120,'configuration de file invalide.');assert(f.people.filter(p=>p.lane===key&&p.stage==='queue').length<=l.capacity,'file saturée.');for(const n of ['arrived','admitted'])assert(Number.isSafeInteger(l[n])&&l[n]>=0, 'historique de file invalide.');assert(l.wait===null||Number.isFinite(l.wait)&&l.wait>=0,'attente invalide.');for(const h of l.history)assert(Number.isFinite(h.time)&&h.time>=0&&h.time<=s.time&&(h.wait===null||Number.isFinite(h.wait)&&h.wait>=0)&&Number.isInteger(h.count)&&h.count>=0,'point historique invalide.');}
+  assert(phase!=='FULL'||show.batch.length+f.people.filter(p=>p.transit?.to==='preshow').length===Math.min(show.capacity,(show.groupSize||show.capacity)+(show.singleExtra||0)),'salle complète incohérente.');
+  for(const key of (s.version>=7?LANE_NAMES:['standard','fast'])){const l=f.lanes[key];assert(l&&typeof l.open==='boolean'&&Number.isInteger(l.capacity)&&l.capacity>=1&&l.capacity<=800&&Number.isInteger(l.rate)&&l.rate>=0&&l.rate<=120&&Number.isFinite(l.timer)&&l.timer>=0&&l.timer<=1&&Array.isArray(l.history)&&l.history.length<=120,'configuration de file invalide.');assert(f.people.filter(p=>p.lane===key&&p.stage==='queue').length<=l.capacity,'file saturée.');for(const n of ['arrived','admitted'])assert(Number.isSafeInteger(l[n])&&l[n]>=0, 'historique de file invalide.');assert(l.wait===null||Number.isFinite(l.wait)&&l.wait>=0,'attente invalide.');for(const h of l.history)assert(Number.isFinite(h.time)&&h.time>=0&&h.time<=s.time&&(h.wait===null||Number.isFinite(h.wait)&&h.wait>=0)&&Number.isInteger(h.count)&&h.count>=0,'point historique invalide.');}
   assert(s.visitors.queueOpen===f.lanes.standard.open&&s.visitors.arrivalRate===f.lanes.standard.rate,'file standard désynchronisée.');
   const sec=f.security;assert(sec&&[null,'SEC-01','SEC-02'].includes(sec.controlled)&&Number.isInteger(sec.duration)&&sec.duration>=1&&sec.duration<=15&&Array.isArray(sec.rules)&&sec.rules.length===7&&sec.rules.every(x=>typeof x==='boolean')&&Array.isArray(sec.stations)&&sec.stations.length===2,'sécurité invalide.');
   const atScanner=new Set();sec.stations.forEach((p,i)=>{assert(p.id===`SEC-0${i+1}`&&typeof p.open==='boolean'&&typeof p.inspected==='boolean'&&typeof p.extra==='boolean'&&Number.isFinite(p.elapsed)&&p.elapsed>=0&&p.elapsed<=30,'poste invalide.');if(p.visitorId!==null){assert(!atScanner.has(p.visitorId)&&f.people.some(x=>x.id===p.visitorId&&x.stage==='security'),'visiteur au scanner incohérent.');atScanner.add(p.visitorId);}});
   for(const p of f.people){const l=s.lockers.items.find(l=>l.assignedVisitor===p.id);assert(!['queue','preshow'].includes(p.stage)||!l,'casier attribué avant le préshow.');assert(!['security','ready'].includes(p.stage)||l?.phase==='STORED','sécurité avant le dépôt.');assert(p.stage!=='ready'||!p.inventory.some(i=>sec.rules[i]),'visiteur autorisé avec un objet interdit.');}
+  if(s.version>=7)validateAdmissions(s,assert);
   const m=f.metrics;assert(m,'statistiques de flux absentes.');for(const key of ['checks','returns','penalties','waitSum','boarded','exited','historyTimer'])assert(Number.isFinite(m[key])&&m[key]>=0,'compteur de flux invalide.');
   if(s.version>=5) {
     const room=f.room;assert(room&&Number.isInteger(room.lockerCapacity)&&room.lockerCapacity>=40&&room.lockerCapacity<=120&&Number.isInteger(room.lockerBatch)&&room.lockerBatch>=1&&room.lockerBatch<=40&&room.securityCapacity===24&&room.readyCapacity===40&&room.travelDuration===2&&room.queueCapacity===1000,'capacités des pièces invalides.');

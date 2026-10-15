@@ -5,6 +5,18 @@ export class StationSystem {
   train() {
     return this.engine.state.trains.find((train) => train.blockId === 'LOAD' && train.progress >= 1&&train.state!=='GARAGING') ?? null;
   }
+  prepare(single=false) {
+    const s=this.engine.state,prepared=s.station.prepared;
+    const no=message=>({status:'rejected',message});
+    if(!s.initialized||!s.open||s.emergency)return no('Ouvrez l’exploitation avant de préparer le quai.');
+    if(s.station.gatesOpen||s.station.gateMotion>1e-9||s.visitors.boarding)return no('Fermez les portiques et terminez les passages engagés avant de préparer le quai.');
+    if(this.engine.maintenance.has('gates'))return no('Portiques indisponibles : préparation suspendue.');
+    const capacity=this.train()?.capacity||20,people=new Map(s.flow.people.map(p=>[p.id,p]));
+    const ids=this.engine.lockers.readyIds(40).filter(id=>(people.get(id)?.lane==='single')===single).slice(0,capacity-prepared.length);
+    if(!ids.length)return no(prepared.length>=capacity?'Le quai est déjà préparé au maximum.':single?'Aucun Single Rider contrôlé disponible.':'Aucun visiteur Standard/Fast Pass contrôlé disponible.');
+    const used=new Set(prepared.map(p=>p.slot));for(const id of ids){let slot=0;while(used.has(slot))slot++;prepared.push({id,slot});used.add(slot);}
+    return {status:'accepted',message:`${ids.length} visiteurs placés derrière les portiques · ${prepared.length}/${capacity} prêts sur le quai.`};
+  }
   reset() {
     Object.assign(this.engine.state.station, { gateMotion:0,harnessMotion:0,gatesOpen: false, platformClear: false, loadingProgress: 0, autoTimer: 0 });
   }
@@ -34,10 +46,12 @@ export class StationSystem {
     const testing=state.service.phase==='TESTS';
     if (!state.initialized || (!state.open&&!testing) || state.mode !== 'auto' || state.emergency || state.hold || !state.dispatchEnabled) return;
     const train = this.train();
-    if (!train || train.state === 'LOADING') return;
+    if (train?.state === 'LOADING') return;
     state.station.autoTimer += dt;
     if (state.station.autoTimer + 1e-9 < SIMULATION_CONFIG.automaticActionInterval) return;
     state.station.autoTimer = 0;
+    if(!testing&&!state.station.gatesOpen&&state.station.prepared.length<20&&this.engine.lockers.readyIds(40).length){this.engine.command('PREPARE_PLATFORM');this.engine.command('COMPLETE_SR');}
+    if(!train)return;
     if(testing) {
       if(train.passengers)return;
       if(state.station.gatesOpen)this.engine.command('TOGGLE_GATES');
@@ -49,8 +63,9 @@ export class StationSystem {
     }
     // Chaque étape automatique passe par les mêmes validations que le pupitre.
     if (train.harness === 'open' && state.station.loadingProgress === 0 && train.passengers === 0) {
+      if (!state.station.prepared.length)return;
       if (!state.station.gatesOpen) this.engine.command('TOGGLE_GATES');
-      else if (this.engine.lockers.readyIds().length > 0) this.engine.command('LOAD');
+      else if (state.station.prepared.length > 0) this.engine.command('LOAD');
       return;
     }
     if (state.station.gatesOpen) this.engine.command('TOGGLE_GATES');

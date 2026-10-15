@@ -1,3 +1,5 @@
+import {AdmissionSystem,createLane,createPass,createFastScanner} from '../systems/AdmissionSystem.js';
+import {createMusicSettings,validateMusicSettings} from '../services/YouTubeMusicController.js';
 import {ScoreSystem,createScore,validateScore} from '../systems/ScoreSystem.js';
 import {acousticState,acousticTransitions} from './PresentationState.js';
 import { TRACK, NEXT_BLOCK, SIMULATION_CONFIG } from '../config/track.js';
@@ -23,14 +25,14 @@ function initialState(seed) {
   const blocks = createBlocks();
   blocks.find((block) => block.id === 'RETURN').occupiedBy = 'T01';
   return {
-    version: 6, score:createScore(), runtime:{paused:false,speed:1}, audio:{volume:.6,music:.35,muted:false}, time: 0, initialized: false, open: false, mode: 'manual',
+    version: 8, music:createMusicSettings(), score:createScore(), runtime:{paused:false,speed:1}, audio:{volume:.6,music:.35,muted:false}, time: 0, initialized: false, open: false, mode: 'manual',
     emergency: false, emergencyAcknowledged: false, hold: false, dispatchEnabled: false,
     trains: createTrains(), blocks,
     lockers:createLockerState(),
     flow:createFlow(SIMULATION_CONFIG.initialQueue),
     maintenance:createMaintenance(),operations:createOperations(),
     service:createService(),
-    station: { gateMotion:0, harnessMotion:0, gatesOpen: false, platformClear: false, loadingProgress: 0, autoTimer: 0 },
+    station: { prepared:[], gateMotion:0, harnessMotion:0, gatesOpen: false, platformClear: false, loadingProgress: 0, autoTimer: 0 },
     visitors: { queue: SIMULATION_CONFIG.initialQueue, boarding: 0, transported: 0, totalArrived: SIMULATION_CONFIG.initialQueue, queueOpen:true, arrivalRate:60 },
     stats: {
       transported: 0, dispatches: 0, fillRate: 0, activeTrains: 1, incidents: 0,
@@ -47,7 +49,7 @@ const finite = (value, min = 0, max = Number.MAX_SAFE_INTEGER) => Number.isFinit
 const integer = (value, min = 0, max = Number.MAX_SAFE_INTEGER) => Number.isSafeInteger(value) && value >= min && value <= max;
 const boolean = (value) => typeof value === 'boolean';
 
-export function validateSnapshot(data, definitions=TRACK, version=6) {
+export function validateSnapshot(data, definitions=TRACK, version=8) {
   const assert = (condition, message) => { if (!condition) throw new Error(`Sauvegarde incohérente : ${message}`); };
   assert(isRecord(data) && data.version === version, 'format ou version non pris en charge.');
   assert(finite(data.time), 'horloge invalide.');
@@ -140,6 +142,11 @@ export function validateSnapshot(data, definitions=TRACK, version=6) {
   assert(boolean(data.station.gatesOpen) && boolean(data.station.platformClear)
     && finite(data.station.loadingProgress, 0, 1) && finite(data.station.autoTimer, 0, SIMULATION_CONFIG.automaticActionInterval + 1e-9), 'état de gare invalide.');
   assert(!data.station.gatesOpen || !data.station.platformClear, 'quai libre avec portillons ouverts.');
+  if(version>=8){
+    const prepared=data.station.prepared,people=new Map((data.flow?.people||[]).map(p=>[p.id,p]));
+    assert(Array.isArray(prepared)&&prepared.length<=20,'préparation du quai invalide.');
+    const ids=new Set(),slots=new Set();for(const p of prepared){assert(isRecord(p)&&integer(p.id,1,data.visitors.totalArrived)&&integer(p.slot,0,19)&&!ids.has(p.id)&&!slots.has(p.slot)&&people.get(p.id)?.stage==='ready'&&!people.get(p.id)?.transit,'visiteur préparé dupliqué ou non contrôlé.');ids.add(p.id);slots.add(p.slot);}
+  }
   const atPlatform = data.trains.find((train) => train.blockId === 'LOAD' && train.progress >= 1);
   assert(!data.station.gatesOpen || (atPlatform && atPlatform.harness === 'open'), 'portillons ouverts sans train accessible.');
   assert(!boarding || ((version>=5||data.station.gatesOpen) && atPlatform?.state === 'LOADING'), 'embarquement sans accès ouvert.');
@@ -151,13 +158,14 @@ export function validateSnapshot(data, definitions=TRACK, version=6) {
   if(version>=4)validateFlow(data,assert);
   if(version>=4){validateMaintenance(data,assert);validateHarness(data,assert);}
   if(version>=5)validateService(data,assert);
+  if(version>=7)validateMusicSettings(data.music,assert);
   if(version>=6){
     validateScore(data,assert);
     assert(data.runtime&&typeof data.runtime.paused==='boolean'&&[.5,1,2,4].includes(data.runtime.speed),'vitesse ou pause invalide.');
     assert(data.audio&&typeof data.audio.muted==='boolean'&&finite(data.audio.volume,0,1)&&finite(data.audio.music,0,1),'audio invalide.');
     assert(finite(data.station.gateMotion,0,.8)&&finite(data.station.harnessMotion,0,.8),'animation de gare invalide.');
     assert(typeof data.flow.room.lockerDoorOpen==='boolean','porte casiers invalide.');
-    const a=data.flow.arrivals;assert(a&&integer(a.totalRate,0,240)&&finite(a.fastPercent,0,100)&&finite(a.timer,0,1)&&finite(a.cursor,0,100),'arrivées partagées invalides.');
+    const a=data.flow.arrivals;assert(a&&integer(a.totalRate,0,240)&&finite(a.fastPercent,0,100)&&finite(a.timer,0,1)&&finite(a.cursor,version>=7?-100:0,100),'arrivées partagées invalides.');
     assert(integer(data.flow.preshow.exitTotal,0,120),'lot sortant invalide.');
   }
   if(version>=3)validateLockers(data,assert);
@@ -196,6 +204,7 @@ export class SimulationEngine {
     this.stations = new StationSystem(this);
     this.visitors = new VisitorSystem(this);
     this.flow = new FlowSystem(this);
+    this.admissions = new AdmissionSystem(this);
     this.score = new ScoreSystem(this);
     this.maintenance = new MaintenanceSystem(this);
     this.harness = new HarnessSystem(this);
@@ -318,6 +327,15 @@ export class SimulationEngine {
       for(const i of candidate.maintenance.incidents)i.scoreAwarded=i.status==='RESOLVED';
       candidate.version=6;
     }
+    if(candidate?.version===6){
+      validateSnapshot(candidate,TRACK,6);
+      const f=candidate.flow;f.lanes.single=createLane(120);f.fastScanner=createFastScanner();
+      Object.assign(f.arrivals,{singlePercent:0,singleCursor:0});
+      Object.assign(f.preshow,{plannedRegular:null,singlePending:[],singleAssigned:[],singleExtra:0});
+      for(const p of f.people)p.fastPass=p.lane==='fast'?{...createPass(),status:p.stage==='queue'?'valid':'used',consumed:p.stage!=='queue',checked:p.stage!=='queue'}:null;
+      candidate.music=createMusicSettings();candidate.version=7;
+    }
+    if(candidate?.version===7){validateSnapshot(candidate,TRACK,7);candidate.station.prepared=[];candidate.version=8;}
     validateSnapshot(candidate);
     this.state = candidate;
     this.acoustics=acousticState(candidate);

@@ -1,3 +1,4 @@
+import {individualBoardingProgress} from './VisitorVisualPool.js';
 import * as THREE from 'three';
 import { box, bar, ball, textSign } from '../scenes/IndustrialScene.js';
 import { getTrainPose, sampleBehind } from './TrackGeometry.js';
@@ -95,10 +96,11 @@ export class TrainRenderer {
       row.checkLamp.visible = Boolean(train.rows?.[index]);
       row.people.forEach((person, sideIndex) => {
         const passengerIndex = index * 2 + sideIndex;
-        const target = passengerIndex < (train.passengers || 0) ? 1 : 0;
+        const id=[...train.passengerIds,...train.boardingIds][passengerIndex];const walking=id!==undefined&&train.boardingIds.includes(id);
+        const target = walking?individualBoardingProgress(train,id):passengerIndex < (train.passengers || 0)?1:0;
         this.passengerProgress[passengerIndex] += (target - this.passengerProgress[passengerIndex]) * Math.min(1, dt * 2.5);
         const progress = this.passengerProgress[passengerIndex];
-        person.visible = target > 0 || progress > .03;
+        person.visible = walking || target > 0 || progress > .03;
         // At the platform a newly assigned visitor walks in from the gate and sits.
         const boarding = train.blockId === 'LOAD' && this.harness > .2;
         person.position.z = boarding ? (sideIndex === 0 ? -1 : 1) * (1 - progress) * 1.7 : 0;

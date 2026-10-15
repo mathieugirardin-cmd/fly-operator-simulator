@@ -29,6 +29,7 @@ const initialized = () => {
   return engine;
 };
 const load = (engine) => {
+  command(engine, 'PREPARE_PLATFORM');
   command(engine, 'TOGGLE_GATES');
   command(engine, 'LOAD');
   until(engine, () => trainAtQuay(engine)?.state !== 'LOADING', 10);
@@ -91,6 +92,7 @@ describe('exploitation par les commandes publiques', () => {
     const engine = initialized();
     command(engine, 'TOGGLE_DISPATCH');
     expect(engine.command('DISPATCH').message).toMatch(/harnais/i);
+    command(engine, 'PREPARE_PLATFORM');
     command(engine, 'TOGGLE_GATES');
     expect(engine.command('DISPATCH').message).toMatch(/portillons/i);
     command(engine, 'LOAD');

@@ -10,7 +10,7 @@ export class AudioDirector {
   }
   tone(frequency,duration=.15,music=false,type='sine',delay=0){
     const c=this.context;if(!c||!this.enabled||!this.state||this.state.audio.muted||this.state.runtime.paused||this.state.emergency||this.hidden||c.state!=='running')return;
-    if(this.voices.size>=8)return;
+    if(this.voices.size>=8||music&&this.externalShow)return;
     const osc=c.createOscillator(),gain=c.createGain(),start=c.currentTime+delay;
     osc.type=type;osc.frequency.setValueAtTime(frequency,start);gain.gain.setValueAtTime(0,start);gain.gain.linearRampToValueAtTime(.09,start+.015);gain.gain.exponentialRampToValueAtTime(.001,start+duration);
     osc.connect(gain);gain.connect(music?this.music:this.master);this.voices.add(osc);

@@ -1,10 +1,10 @@
 const NS='http://www.w3.org/2000/svg';
 export const QUEUE_PATH_LENGTH=3000;
 export const queuePathPoint=distance=>{const d=Math.max(0,Math.min(QUEUE_PATH_LENGTH,distance));return [30+d%270,60+Math.floor(d/270)*12];};
-const area={queue:{x:35,y:85,cols:24,gap:10},fast:{x:35,y:270,cols:24,gap:10},preshow:{x:355,y:105,cols:10,gap:11},lockers:{x:525,y:105,cols:12,gap:10},security:{x:705,y:105,cols:10,gap:10},ready:{x:865,y:105,cols:10,gap:10}};
+const area={queue:{x:35,y:85,cols:24,gap:10},fast:{x:35,y:220,cols:24,gap:10},single:{x:35,y:310,cols:24,gap:10},preshow:{x:355,y:105,cols:10,gap:11},lockers:{x:525,y:105,cols:12,gap:10},security:{x:705,y:105,cols:10,gap:10},ready:{x:865,y:105,cols:10,gap:10}};
 export function queuePeople(state) {
   const counters={},assignments=new Map(state.lockers.items.filter(l=>l.assignedVisitor!==null).map(l=>[l.assignedVisitor,l]));
-  const waiting=state.flow.people.map((p,index)=>{const zone=p.stage==='queue'&&p.lane==='fast'?'fast':p.stage==='transit'?p.transit.to:p.stage,n=counters[zone]||0;counters[zone]=n+1;const a=area[zone],l=assignments.get(p.id);return {id:p.id,zone,lane:p.lane,distance:Math.max(5,QUEUE_PATH_LENGTH-12-index*2.7),x:a.x+(n%a.cols)*a.gap,y:a.y+Math.floor(n/a.cols)*a.gap,preparation:l?.fault?'fault':zone};});
+  const waiting=state.flow.people.map((p,index)=>{const zone=p.stage==='queue'&&p.lane!=='standard'?p.lane:p.stage==='transit'?p.transit.to:p.stage,n=counters[zone]||0;counters[zone]=n+1;const a=area[zone],l=assignments.get(p.id);return {id:p.id,zone,lane:p.lane,distance:Math.max(5,QUEUE_PATH_LENGTH-12-index*2.7),x:a.x+(n%a.cols)*a.gap,y:a.y+Math.floor(n/a.cols)*a.gap,preparation:l?.fault?'fault':zone};});
   const boarding=state.trains.flatMap(t=>t.boardingIds.map((id,index)=>({id,index,x:865+index%10*11,y:295+Math.floor(index/10)*12})));
   return {waiting,boarding};
 }
@@ -16,7 +16,7 @@ export class Queue2DRenderer {
     container.addEventListener('click',e=>{const b=e.target.closest('[data-queue-command]');if(b)onCommand(b.dataset.queueCommand,b.dataset.queueCommand==='ADD_VISITORS'?{amount:20}:{});});
     container.querySelector('#queue-rate').addEventListener('change',e=>onCommand('SET_ARRIVAL_RATE',{rate:Number(e.target.value)}));
     this.svg=container.querySelector('#queue-svg');this.labels={};
-    const boxes=[['queue',20,45,280,155,'FILE STANDARD'],['fast',20,230,280,120,'FAST PASS'],['preshow',340,65,140,200,'PRÉSHOW'],['lockers',510,65,145,200,'CASIERS'],['security',690,65,130,200,'SÉCURITÉ'],['ready',850,65,140,200,'PRÊTS À EMBARQUER']];
+    const boxes=[['queue',20,45,280,155,'FILE STANDARD'],['fast',20,185,280,85,'FAST PASS'],['single',20,280,280,80,'SINGLE RIDER'],['preshow',340,65,140,200,'PRÉSHOW'],['lockers',510,65,145,200,'CASIERS'],['security',690,65,130,200,'SÉCURITÉ'],['ready',850,65,140,200,'PRÊTS À EMBARQUER']];
     for(const [id,x,y,w,h,title]of boxes){this.svg.append(svg('rect',{x,y,width:w,height:h,rx:8,fill:'#1c2b23',stroke:'#4d5c47'}));this.svg.append(svg('text',{x:x+10,y:y+20,fill:'#d3c291','font-size':10},title));const count=svg('text',{x:x+10,y:y+h-10,fill:'#a6bca3','font-size':11},'0 personne');this.svg.append(count);this.labels[id]=count;}
     this.svg.append(svg('path',{d:'M301 135H330 M301 285L332 155 M481 155H502 M656 155H681 M821 155H842 M920 267V287',stroke:'#9b8b63','stroke-width':2,fill:'none'}));
     this.trainLabel=svg('text',{x:850,y:330,fill:'#d4c39c','font-size':11},'AUCUN TRAIN À QUAI');this.svg.append(this.trainLabel);
@@ -38,7 +38,7 @@ export class Queue2DRenderer {
       alive.add(person.id);counts[person.zone]=(counts[person.zone]||0)+1;let dot=this.people.get(person.id);
       if(!dot){const node=svg('circle',{r:3});this.dotLayer.append(node);dot={node,x:person.x,y:person.y};this.people.set(person.id,dot);}
       if(!state.emergency){const a=dt?Math.min(1,dt*8):1;dot.x+=(person.x-dot.x)*a;dot.y+=(person.y-dot.y)*a;}
-      const color=({queue:'#99bfc0',fast:'#dfbd79',preshow:'#b6a3cd',lockers:'#ca956f',security:'#a1c2e0',ready:'#acd69e',fault:'#e58478',boarding:'#dfbd79'})[person.preparation];
+      const color=({queue:'#99bfc0',single:'#c990e3',fast:'#dfbd79',preshow:'#b6a3cd',lockers:'#ca956f',security:'#a1c2e0',ready:'#acd69e',fault:'#e58478',boarding:'#dfbd79'})[person.preparation];
       dot.node.setAttribute('cx',dot.x.toFixed(2));dot.node.setAttribute('cy',dot.y.toFixed(2));dot.node.setAttribute('fill',color);dot.node.setAttribute('data-visitor-id',String(person.id));dot.node.setAttribute('data-zone',person.zone);
     }
     for(const [zone,label]of Object.entries(this.labels))label.textContent=`${counts[zone]||0} personne(s)`;

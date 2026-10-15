@@ -1,8 +1,8 @@
-# F.L.Y. Operator Simulator — prototype 0.6
+# F.L.Y. Operator Simulator — prototype 0.7
 
-Pupitre plein écran en français : scène Three.js, circuit et carte synchronisés, deux gares souterraines, occupation des pièces, files standard/Fast Pass, préshow, 120 casiers, deux postes de sécurité et six trains. Le moteur central fournit l’état de toutes les vues.
+Pupitre plein écran en français : scène Three.js, circuit et carte synchronisés, deux gares souterraines, occupation des pièces, files Standard/Fast Pass/Single Rider, préshow, 120 casiers, deux postes de sécurité et six trains. Le moteur central fournit l’état de toutes les vues.
 
-La version **0.6** ajoute le plan vivant avec commandes de portes, les arrivées Fast Pass proportionnelles, le score persistant à la sortie, les sons synthétisés, la pause/vitesse et les raccourcis du pupitre. Vérifications et limites : [EVOLUTIONS-0.6.md](docs/EVOLUTIONS-0.6.md). Les mises à jour du site passent par les tests et le déploiement GitHub Actions.
+La version **0.7** reprend la maquette industrielle : grand plan interactif, embarquement agrandi, personnages associés à leur identité, vraie file Single Rider, scanner Fast Pass et lecteur YouTube officiel. Vérifications et limites : [EVOLUTIONS-0.7.md](docs/EVOLUTIONS-0.7.md). La version est publiée par GitHub Actions après réussite des tests et du build.
 
 Projet non officiel, sans affiliation à Phantasialand ou Vekoma. Tracé, altitudes, cantons, procédures et incidents sont des conventions fictives de jeu ; ce logiciel n’est pas un outil de formation à l’exploitation réelle.
 
@@ -34,9 +34,8 @@ Un train non testé ne peut pas être ajouté à une exploitation ouverte. Ferme
 ## Pupitre et vues
 
 - Haut : phase de service, temps simulé, trains actifs, attentes et débit ; bandeau d’alertes cliquable.
-- Gauche : entrées standard/Fast Pass, préshow, casiers et sécurité A assistée/B automatique.
-- Centre : caméras 3D et circuit SVG, avec un plan d’occupation des pièces. Cliquer sur une pièce la sélectionne. Les points, réservations, jauges, portes et transits proviennent du moteur.
-- Droite : vingt places du train, portiques, embarquement, harnais, rangées, contrôle du quai et départ.
+- Partie principale (environ 75 %) : bandeau YouTube/caméra et grand plan des pièces. Les commandes de portes se trouvent aux seuils ; cliquer sur un titre ouvre les réglages de la pièce. Cliquer sur l’embarquement agrandit la caméra, puis « Retour au plan » restaure la vue précédente. Les personnages, réservations, jauges et transits proviennent du moteur.
+- Droite : circuit sous le pupitre, préparation du quai, vingt places du train, portiques, embarquement, harnais, rangées, contrôle du quai et départ.
 - Bas : initialisation, Préparation/Tests/Exploitation, six positions de garage, maintien, arrêt exploitation et urgence.
 - **Réglages** ouvre un tiroir pour les capacités, débits, durées, contrôles détaillés, sauvegardes et incidents existants. Le bouton **⛶** utilise le plein écran du navigateur lorsqu’il est disponible.
 
@@ -44,9 +43,13 @@ Les commandes bloquées donnent une raison. Le bouton Départ reste visible. Le 
 
 ## Flux et capacités
 
-La file standard accueille 600 personnes par défaut, la file Fast Pass 160. Les capacités sont réglables jusqu’à 800 par file, dans la limite globale de 1000 personnes en préparation. Chaque file possède son ouverture, son débit, son historique et son estimation d’attente. Le ratio initial de fusion est de trois standard pour un Fast Pass ; l’ordre d’arrivée est conservé dans chaque file.
+La file standard accueille 600 personnes par défaut, la file Fast Pass 160 et la file Single Rider 120. Les capacités sont réglables jusqu’à 800 par file, dans la limite globale de 1000 personnes en préparation. Chaque file possède son ouverture, son débit, son historique et son estimation d’attente. Le ratio initial de fusion est de trois standard pour un Fast Pass ; l’ordre d’arrivée est conservé dans chaque file.
 
-Le préshow contient au maximum 80 personnes par défaut, par groupes de 20. Capacité (1–120), taille du groupe, entrée/sortie (1–10 personnes/seconde) et durée de présentation sont réglables. À 2 personnes/seconde, engager 80 entrées demande 40 secondes, auxquelles s’ajoutent le mouvement des portes et le trajet. Une entrée engagée réserve une place ; fermer les portes laisse terminer ce passage. La présentation attend la fermeture des portes et la fin des entrées. Un groupe ne se remplit pas pendant le vidage. Fermer la sortie suspend les nouveaux transferts tout en laissant finir ceux engagés.
+Les arrivées totales sont réparties entre les trois files (par défaut 70 % Standard, 20 % Fast Pass, 10 % Single Rider). Les passes sont fictifs : scanner automatique ou manuel, valide/utilisé/invalide ; réorientation vers Standard si une place est disponible, sans changer l’identité ou l’heure d’arrivée.
+
+Le complément Single Rider est une estimation par places, sans familles simulées : un lot de 37 et des trains de 20 places conseillent 3 Single Riders. En remplissage, « Ajouter N » réserve des personnes réelles, puis les admet progressivement. Les clics répétés ne les réservent pas deux fois. En gare, les visiteurs Standard/Fast Pass prêts embarquent avant les Single Riders, qui passent également par les casiers et la sécurité.
+
+Le préshow contient au maximum 80 personnes par défaut, par groupes de 20. Capacité (1–120), taille du groupe, entrée/sortie (1–10 personnes/seconde) et durée de présentation sont réglables. À 2 personnes/seconde, engager 80 entrées demande 40 secondes, auxquelles s’ajoutent le mouvement des portes et le trajet. Une entrée engagée réserve une place ; fermer les portes laisse terminer ce passage. Le plan affiche le temps restant et le pourcentage de séance, puis une barre verte pleine et un compteur distinct pendant la sortie. La présentation attend la fermeture des portes et la fin des entrées. Un groupe ne se remplit pas pendant le vidage. Fermer la sortie suspend les nouveaux transferts tout en laissant finir ceux engagés.
 
 Chaque déplacement entre les pièces dure deux secondes de simulation et réserve une place à destination. Une destination saturée retient les visiteurs en amont. Le changement manuel/automatique conserve les identités, le groupe et les opérations déjà engagées. Les transits utilisent les pas fixes du moteur, sans minuterie d’interface indépendante.
 
@@ -56,7 +59,9 @@ Après le dépôt, SEC-01 et SEC-02 traitent les visiteurs avec une durée réel
 
 ## Gare, retenues et arrêts
 
-Séquence manuelle : ouvrir les portiques → embarquer → fermer les portiques → fermer les harnais → vérifier les dix rangées → confirmer le quai libre → autoriser le départ. Les passagers déjà engagés terminent leur embarquement si les portiques sont fermés. Un départ partiellement rempli est permis.
+Séquence manuelle : préparer le quai → compléter SR si nécessaire → ouvrir les portiques → charger le train → fermer les portiques → fermer les harnais → vérifier les dix rangées → confirmer le quai libre → autoriser le départ. Les passagers déjà engagés terminent leur embarquement si les portiques sont fermés. Un départ partiellement rempli est permis.
+
+« Préparer le quai » réserve au plus vingt visiteurs contrôlés Standard/Fast Pass, même sans train présent. « Compléter SR » prend les Single Riders disponibles. Ils restent en attente derrière les portiques et ne sont pas encore passagers ; le chargement transfère progressivement ces mêmes identités vers le train. La réservation est sauvegardée et ne bloque pas la confirmation du quai libre lorsque les portiques sont fermés.
 
 Chaque place possède une identité et un état de retenue. Gris : vide ; orange : ouvert/à vérifier ; vert : conforme ; rouge : intervention. Rouvrir les harnais annule les validations. Les interventions existantes sont accessibles dans le tiroir. Les vérifications virtuelles sont progressives et ne contournent pas un défaut.
 
@@ -64,9 +69,15 @@ Le débarquement est progressif. Les visiteurs rejoignent ensuite leurs affaires
 
 **Arrêt exploitation** bloque les nouveaux départs ; les trains déjà engagés finissent leur circulation autorisée. **Arrêt d’urgence** fige les déplacements et traitements du simulateur. Acquitter ne répare aucun défaut. Après acquittement et réarmement, l’autorisation de départ doit être réactivée manuellement.
 
+## Musique YouTube (facultative)
+
+Dans **Réglages → Opérations**, activer le lecteur visible, choisir une playlist et une URL/ID pour le morceau préshow. Les pistes chargées sont proposées par ID, sans titre inventé. Le morceau préshow est retiré de l’ambiance, déclenché au début réel d’une séance, puis l’ambiance reprend sa piste et sa position. Lecture, pause, suivant, volume et sourdine sont disponibles ; un clic dans le lecteur natif peut être nécessaire.
+
+Le jeu garde son chronomètre et sa vitesse indépendamment de YouTube. Une vidéo indisponible ou un refus d’intégration laisse les effets et le moteur fonctionner. Le lecteur se suspend pendant une pause, un onglet masqué ou un dialogue qui le recouvre. Seuls les réglages sont sauvegardés ; aucune vidéo n’est téléchargée. Une connexion Internet est nécessaire si cette option est activée.
+
 ## Sauvegardes
 
-IndexedDB conserve la partie dans le navigateur : sauvegarde manuelle et automatique toutes les trente secondes après initialisation. Les réglages, identités, casiers, inspections, réservations de destinations, trains et transferts sont enregistrés. Les versions précédentes sont validées puis migrées avant remplacement de l’état vivant. Une sauvegarde incohérente ne détruit pas la partie courante.
+IndexedDB conserve la partie dans le navigateur : sauvegarde manuelle et automatique toutes les trente secondes après initialisation. Les réglages, identités, casiers, inspections, réservations de destinations, trains et transferts sont enregistrés. Le format de sauvegarde est v8 ; les versions précédentes, dont v6 et v7, sont validées puis migrées avant remplacement de l’état vivant. Une sauvegarde incohérente ne détruit pas la partie courante.
 
 Les sauvegardes sont propres au navigateur et à l’origine du site. Elles ne se synchronisent pas entre ordinateurs ; une sauvegarde de localhost n’apparaît pas automatiquement sur GitHub Pages. Un onglet masqué suspend le temps et déclenche une sauvegarde ; il n’y a pas de progression hors ligne.
 
@@ -82,6 +93,6 @@ Les couleurs du plan ne définissent pas les cantons. La carte distingue la lég
 
 `SimulationEngine` est indépendant du DOM et de Three.js. `CommandDispatcher` contrôle les actions ; `ServiceSystem`, `FlowSystem`, `LockerSystem`, `StationSystem` et `TrainSystem` assurent les transitions. Les vues lisent l’état central. Le moteur avance par pas fixes de 100 ms.
 
-Les tests couvrent la conservation des personnes, les cantons, les gares souterraines, les sauvegardes et migrations, les deux files, le préshow, les casiers, la sécurité, les retenues et la maintenance déjà présente. Les scénarios du pupitre vérifient le cycle de test des six trains, les réservations, la saturation aval, la fermeture pendant un passage et le transfert garage.
+Les tests couvrent la conservation des personnes, les cantons, les gares souterraines, les sauvegardes et migrations, les trois files, le préshow, les casiers, la sécurité, les retenues et la maintenance déjà présente. Les scénarios du pupitre vérifient le cycle de test des six trains, les réservations, la saturation aval, la fermeture pendant un passage et le transfert garage.
 
-La vérification finale et ses captures sont consignées dans [VALIDATION.md](docs/VALIDATION.md). Les performances dépendent de la machine ; aucune garantie de 60 FPS n’est établie. Le catalogue de nouveaux incidents complexes et la refonte des statistiques sont reportés conformément au dernier périmètre demandé. Le module d’incidents existant reste accessible dans les réglages.
+La vérification de cette version et ses captures sont consignées dans [EVOLUTIONS-0.7.md](docs/EVOLUTIONS-0.7.md). [VALIDATION.md](docs/VALIDATION.md) conserve les vérifications antérieures. Les performances dépendent de la machine ; aucune garantie de 60 FPS n’est établie. Le catalogue de nouveaux incidents complexes et la refonte des statistiques sont reportés conformément au dernier périmètre demandé. Le module d’incidents existant reste accessible dans les réglages.

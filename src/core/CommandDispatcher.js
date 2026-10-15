@@ -1,3 +1,4 @@
+import {validateMusicSettings} from '../services/YouTubeMusicController.js';
 import { transition } from './StateMachine.js';
 import {refreshLocker} from '../systems/LockerSystem.js';
 
@@ -39,6 +40,9 @@ export class CommandDispatcher {
     const { engine } = this;
     const { state, stations, blocks, trains, visitors } = engine;
     if (typeof type !== 'string' || !payload || typeof payload !== 'object' || Array.isArray(payload)) return rejected('Commande invalide.');
+    if(type==='SET_YOUTUBE'){
+      const current=structuredClone(state.music);if(Object.hasOwn(current,payload.field)){current[payload.field]=payload.value;try{validateMusicSettings(current,(ok,message)=>{if(!ok)throw new Error(message);});state.music=current;return accepted('Réglages YouTube enregistrés.');}catch{return rejected('Réglage YouTube invalide.');}}return rejected('Réglage YouTube inconnu.');
+    }
     if(type==='SET_AUDIO'){
       if(presentAudio(payload)){state.audio[payload.field]=payload.value;return accepted('Réglage audio appliqué.');}return rejected('Réglage audio invalide.');
     }
@@ -101,6 +105,7 @@ export class CommandDispatcher {
     }
     if(['CALL_MAINTENANCE','VERIFY_REPAIR','RESTORE_EQUIPMENT','SET_PRIORITY'].includes(type))return engine.maintenance.command(type,payload);
     if (state.emergency) return fault("Commande bloquée par l'arrêt d'urgence. Acquittez puis réarmez le système.");
+    const admissionResult=engine.admissions.command(type,payload);if(admissionResult)return admissionResult;
     const flowResult=engine.flow.command(type,payload);if(flowResult)return flowResult;
     const serviceResult=engine.service.command(type,payload);if(serviceResult)return serviceResult;
     const maintenanceResult=engine.maintenance.command(type,payload);if(maintenanceResult)return maintenanceResult;
@@ -200,6 +205,7 @@ export class CommandDispatcher {
       stations.reset();
       return accepted(`${train.id} · départ autorisé avec ${train.passengers}/20 passagers.`);
     }
+    if(type==='PREPARE_PLATFORM'||type==='COMPLETE_SR')return stations.prepare(type==='COMPLETE_SR');
     const stationCommands = ['TOGGLE_GATES', 'LOAD', 'CLOSE_HARNESSES', 'OPEN_HARNESSES', 'CHECK_ROW', 'CHECK_ALL', 'CLEAR_PLATFORM'];
     if (!stationCommands.includes(type)) return rejected(`Commande inconnue : ${type}.`);
     const train = stations.train();
@@ -221,7 +227,8 @@ export class CommandDispatcher {
       if (!state.station.gatesOpen || train.harness !== 'open') return rejected("Ouvrez les portillons et les harnais avant l'embarquement.");
       if (train.passengers >= train.capacity) return rejected('Le train a atteint sa capacité de vingt passagers.');
       if (state.visitors.queue === 0) return pending("Aucun visiteur disponible dans la file d'attente.");
-      if (!engine.lockers.readyIds(train.capacity-train.passengers).length) return pending('Les visiteurs doivent terminer le préshow, le dépôt et le contrôle de sécurité.');
+      if(!state.station.prepared.length)return pending('Préparez le quai avec les visiteurs contrôlés avant de charger le train.');
+      if(state.station.prepared.some(({id})=>{const p=engine.flow.person(id),locker=engine.lockers.forVisitor(id);return p?.stage!=='ready'||p.transit||p.inventory.some(i=>state.flow.security.rules[i])||locker?.phase!=='STORED'||locker.fault;}))return pending('Un visiteur préparé attend la remise en service de son casier ou un contrôle conforme.');
       visitors.load(train);
       return accepted(`${train.id} · embarquement de ${train.loadingTarget} visiteurs en cours.`);
     }

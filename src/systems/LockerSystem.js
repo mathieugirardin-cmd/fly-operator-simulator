@@ -42,8 +42,13 @@ export class LockerSystem {
   }
   readyIds(limit=20) {
     const state=this.engine.state,ready=new Set(state.lockers.items.filter(l=>l.phase==='STORED'&&!l.fault).map(l=>l.assignedVisitor)),ids=[];
-    for(const id of state.flow.order) {
-      if(ids.length>=limit||!ready.has(id)||this.engine.flow.person(id)?.stage!=='ready')break;ids.push(id);
+    const people=new Map(state.flow.people.map(p=>[p.id,p])),prepared=new Set((state.station.prepared||[]).map(p=>p.id));
+    // Preserve FIFO separately. Single Riders complete places after the regular line.
+    for(const single of [false,true])for(const id of state.flow.order){
+      const person=people.get(id);if(prepared.has(id)||(person?.lane==='single')!==single)continue;
+      if(ids.length>=limit)break;
+      if(!ready.has(id)||person?.stage!=='ready')break;
+      ids.push(id);
     }
     return ids;
   }

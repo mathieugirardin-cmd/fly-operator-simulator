@@ -5,7 +5,7 @@ import {roomPopulation} from '../rendering/OccupancyRenderer.js';
 import {KeyboardController} from '../ui/KeyboardController.js';
 import {AudioDirector} from '../services/AudioDirector.js';
 const until=(e,p,max=600)=>{for(let i=0;i<max*10;i++){if(p())return;e.update(.1);}throw new Error('Scénario bloqué');};
-const base=()=>{const e=new SimulationEngine();e.command('INITIALIZE');e.command('SET_FAILURE_LEVEL',{level:'off'});e.command('SET_HARNESS_CONFIG',{field:'harnessIncidents',value:false});e.command('SET_ARRIVAL_RATE',{rate:0});return e;};
+const base=()=>{const e=new SimulationEngine();e.command('INITIALIZE');e.command('SET_FAILURE_LEVEL',{level:'off'});e.command('SET_HARNESS_CONFIG',{field:'harnessIncidents',value:false});e.command('SET_ARRIVAL_RATE',{rate:0});e.command('SET_ARRIVALS',{field:'singlePercent',value:0});return e;};
 const open=()=>{const e=base();e.command('SET_SERVICE_PHASE',{phase:'TESTS'});until(e,()=>e.state.trains[0].testValid);e.command('OPEN');return e;};
 function identities(e){const {zones,transits}=roomPopulation(e.state),ids=[...Object.values(zones).flat().map(p=>p.id),...transits.map(p=>p.id)];expect(new Set(ids).size).toBe(ids.length);expect(validateSnapshot(e.snapshot())).toBe(true);}
 
@@ -32,6 +32,7 @@ describe('préshow progressif, Fast Pass et plan vivant',()=>{
   });
   it('garantit une place aux deux files dans le ratio configuré, sans inverser leur FIFO',()=>{
     const e=open();e.command('PRESHOW_AUTO');e.command('ADD_VISITORS',{amount:20,lane:'fast'});e.command('SET_FLOW_CONFIG',{field:'ratio',value:1});
+    for(const p of e.state.flow.people)if(p.lane==='fast')p.fastPass.checked=true;
     const selected=[];for(let i=0;i<10;i++){const p=e.flow.selectNext();selected.push(p);p.stage='preshow';e.state.flow.preshow.batch.push(p.id);}
     expect(selected.map(p=>p.lane)).toEqual(Array.from({length:10},(_,i)=>i%2?'fast':'standard'));expect(selected.filter(p=>p.lane==='fast').map(p=>p.id)).toEqual([49,50,51,52,53]);
   });
@@ -50,7 +51,7 @@ describe('score au franchissement de la sortie',()=>{
   it('sauvegarde score et attentes en cours puis migre V5 sans récompense rétroactive',()=>{
     const e=open();until(e,()=>e.state.visitors.transported>=20);until(e,()=>e.state.score.visitors>=20);expect(e.state.score.total).toBe(e.state.score.visitors*20);const copy=new SimulationEngine();copy.restore(e.snapshot());expect(copy.state.score).toEqual(e.state.score);
     const old=e.snapshot();old.version=5;delete old.score;delete old.runtime;delete old.audio;delete old.flow.arrivals;delete old.flow.preshow.exitTotal;delete old.flow.room.lockerDoorOpen;delete old.station.gateMotion;delete old.station.harnessMotion;
-    copy.restore(old);expect(copy.state.version).toBe(6);expect(copy.state.score.total).toBe(0);expect(validateSnapshot(copy.snapshot())).toBe(true);
+    copy.restore(old);expect(copy.state.version).toBe(8);expect(copy.state.score.total).toBe(0);expect(validateSnapshot(copy.snapshot())).toBe(true);
     const bad=copy.snapshot();bad.score.total=-1;expect(()=>copy.restore(bad)).toThrow(/score/);expect(copy.state.score.total).toBe(0);
   });
 });

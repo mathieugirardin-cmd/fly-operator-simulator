@@ -25,7 +25,7 @@ export class StatisticsSystem {
     for(const [name,lane]of Object.entries(f.lanes)) {
       const count=f.people.filter(p=>p.lane===name&&p.stage==='queue').length,other=f.people.filter(p=>p.lane!==name&&p.stage==='queue').length;
       const ahead=f.people.filter(p=>p.stage!=='queue').length;
-      const share=other===0?1:name==='standard'?f.ratio/(f.ratio+1):1/(f.ratio+1);
+      const share=other===0?1:name==='single'?.1:name==='standard'?f.ratio/(f.ratio+1):1/(f.ratio+1);
       const estimate=unavailable?null:(count/share+ahead)/bottleneck/60;
       lane.wait=estimate===null?null:lane.wait===null?estimate:lane.wait*.8+estimate*.2;
       lane.history.push({time:state.time,wait:lane.wait,count});if(lane.history.length>120)lane.history.shift();

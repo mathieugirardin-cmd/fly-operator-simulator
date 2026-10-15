@@ -1,6 +1,6 @@
 {
   "name": "fly-operator-simulator",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "description": "Simulateur non officiel d'exploitation — fondation jouable",

@@ -13,6 +13,8 @@ import { TRACK } from './config/track.js';
 import { Dashboard } from './ui/Dashboard.js';
 import { SaveManager } from './services/SaveManager.js';
 import {AudioDirector} from './services/AudioDirector.js';
+import {MusicPanel} from './ui/MusicPanel.js';
+import {YouTubeMusicController} from './services/YouTubeMusicController.js';
 import {KeyboardController} from './ui/KeyboardController.js';
 
 let engine = new SimulationEngine();
@@ -62,7 +64,7 @@ const ui = new Dashboard(document.querySelector('#app'), {
     try {
       await saves.clear();
       engine = new SimulationEngine();
-      bindAudio();
+      bindAudio();resetPresentation();
       lastAutosave = performance.now();
       ui.update(engine.state,true);
       ui.setCamera('station');
@@ -92,9 +94,12 @@ lockerPanel.update(engine.state);
 const workbench=document.createElement('section');workbench.className='panel operations-panel';workbench.id='operations-workbench';document.querySelector('#visitors').after(workbench);
 operationsPanel=new OperationsPanel(workbench,{onCommand:(type,payload)=>ui.handlers.command(type,payload),onCamera:id=>{ui.setCamera(id);ui.navigate('operations');},onNavigate:id=>ui.navigate(id)});
 operationsPanel.update(engine.state);
-consoleLayout=new ConsoleLayout(document.querySelector('#app'),{onCommand:(type,payload)=>ui.handlers.command(type,payload),onCamera:id=>ui.setCamera(id),onDrawer:id=>ui.navigate(id),onSeat:index=>{operationsPanel.selectedSeat=index;operationsPanel.update(engine.state);},onToast:(message,status)=>ui.toast(message,status)});
+consoleLayout=new ConsoleLayout(document.querySelector('#app'),{onCommand:(type,payload)=>ui.handlers.command(type,payload),onCamera:id=>ui.setCamera(id),onDrawer:id=>ui.navigate(id),onSeat:index=>{operationsPanel.selectedSeat=index;operationsPanel.update(engine.state);},onToast:(message,status)=>ui.toast(message,status),getCamera:()=>ui.activeCamera});
 consoleLayout.update(engine.state);
-const keyboard=new KeyboardController({state:()=>engine.state,command:(type,payload)=>ui.handlers.command(type,payload),blocked:target=>!!document.querySelector('dialog[open]')||!!target?.closest?.('input,textarea,select,[contenteditable="true"],[role="menu"],[role="listbox"],[role="combobox"]')});
+const musicPanel=new MusicPanel(document.querySelector('#app'),{onCommand:(type,p)=>ui.handlers.command(type,p),onPlay:()=>music.play(engine.state),onPause:()=>music.pause(),onNext:()=>music.next(),onDisable:()=>music.pause()});
+const music=new YouTubeMusicController({host:musicPanel.host,onStatus:text=>musicPanel.message(text)});
+function resetPresentation(){renderer?.visitorRooms.reset();consoleLayout?.occupancy.reset();music?.reset(engine.state);}
+const keyboard=new KeyboardController({state:()=>engine.state,command:(type,payload)=>ui.handlers.command(type,payload),blocked:target=>!!document.querySelector('dialog[open]')||!!target?.closest?.('button')&&!target?.closest?.('.control-panel')||!!target?.closest?.('input,textarea,select,[contenteditable="true"],[role="menu"],[role="listbox"],[role="combobox"]')});
 document.addEventListener('keydown',event=>keyboard.down(event));
 document.addEventListener('keyup',event=>keyboard.up(event));
 window.addEventListener('blur',()=>keyboard.release());
@@ -131,7 +136,7 @@ async function restoreGame() {
     const restored=new SimulationEngine();
     restored.restore(saved.snapshot);
     engine=restored;
-    bindAudio();
+    bindAudio();resetPresentation();
     lastAutosave=performance.now();
     ui.update(engine.state,true);
     ui.toast('Partie restaurée. Cohérence des trains et cantons vérifiée.');
@@ -143,13 +148,14 @@ async function restoreGame() {
 let previous=performance.now();
 document.addEventListener('visibilitychange',()=>{
   previous=performance.now();
-  audio.sync(engine.state,document.hidden);keyboard.release();
+  audio.sync(engine.state,document.hidden);music.update(engine.state,{hidden:document.hidden});keyboard.release();
   if(document.hidden && engine.state.initialized) saveGame();
 });
 function frame(now) {
   const dt=Math.max(0,(now-previous)/1000); previous=now;
   if(!document.hidden) {
     engine.update(Math.min(dt,1));
+    music.update(engine.state,{modal:!!document.querySelector('dialog[open]')});audio.externalShow=music.providesShowMusic;musicPanel.update(engine.state,music);
     audio.sync(engine.state,false);
     renderer?.update(engine.state,engine.state.runtime.paused||engine.state.emergency?0:dt*engine.state.runtime.speed);
     if(now-lastDraw>=100) {ui.update(engine.state);map?.update(engine.state);queueView?.update(engine.state,Math.min(.3,(now-lastDraw)/1000));lockerPanel?.update(engine.state);operationsPanel?.update(engine.state);consoleLayout?.update(engine.state);lastDraw=now;}

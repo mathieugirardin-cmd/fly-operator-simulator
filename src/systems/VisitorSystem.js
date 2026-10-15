@@ -15,8 +15,9 @@ export class VisitorSystem {
     if(state.open&&!state.emergency&&Object.values(state.flow.lanes).some(l=>l.open)){
       a.timer+=dt*a.totalRate/60;
       while(a.timer>=1-1e-9){
-        a.timer=Math.max(0,a.timer-1);a.cursor+=a.fastPercent;
-        const lane=a.cursor>=100-1e-9?'fast':'standard';if(lane==='fast')a.cursor=Math.max(0,a.cursor-100);
+        a.timer=Math.max(0,a.timer-1);
+        const credit={fast:a.cursor+a.fastPercent,single:a.singleCursor+a.singlePercent,standard:-a.cursor-a.singleCursor+100-a.fastPercent-a.singlePercent};
+        const lane=Object.keys(credit).reduce((best,key)=>credit[key]>credit[best]?key:best,'standard');credit[lane]-=100;a.cursor=credit.fast;a.singleCursor=credit.single;
         if(state.flow.lanes[lane].open)this.add(1,lane);
       }
     }
@@ -51,7 +52,8 @@ export class VisitorSystem {
   }
   load(train) {
     const state = this.engine.state;
-    train.boardingIds=this.engine.lockers.readyIds(train.capacity-train.passengers);
+    train.boardingIds=state.station.prepared.slice(0,train.capacity-train.passengers).map(p=>p.id);
+    const selected=new Set(train.boardingIds);state.station.prepared=state.station.prepared.filter(p=>!selected.has(p.id));
     this.engine.flow.board(train.boardingIds);
     train.loadingTarget = train.boardingIds.length;
     train.loadingTransferred = 0;
