@@ -49,6 +49,12 @@ export class CommandDispatcher {
     if(type==='SET_RUNTIME'){
       if(payload.field==='paused'&&typeof payload.value==='boolean'||payload.field==='speed'&&[.5,1,2,4].includes(payload.value)){state.runtime[payload.field]=payload.value;return accepted(state.runtime.paused?'Simulation en pause.':`Simulation ×${state.runtime.speed}.`);}return rejected('Réglage temporel invalide.');
     }
+    if (type === 'SET_MODE') {
+      if (!['manual', 'auto'].includes(payload.mode)) return rejected('Choisissez le mode manuel ou automatique.');
+      state.mode = payload.mode;
+      state.station.autoTimer = 0;
+      return accepted(`Mode ${payload.mode === 'auto' ? 'automatique' : 'manuel'} sélectionné.`);
+    }
     if (type === 'EMERGENCY_STOP') {
       if (state.emergency) return rejected("L'arrêt d'urgence est déjà actif.");
       state.emergency = true;
@@ -148,12 +154,6 @@ export class CommandDispatcher {
       state.open = true;
       state.service.phase='OPERATION';
       return accepted('Attraction ouverte · accueil des visiteurs autorisé.');
-    }
-    if (type === 'SET_MODE') {
-      if (!['manual', 'auto'].includes(payload.mode)) return rejected('Choisissez le mode manuel ou automatique.');
-      state.mode = payload.mode;
-      state.station.autoTimer = 0;
-      return accepted(`Mode ${payload.mode === 'auto' ? 'automatique' : 'manuel'} sélectionné.`);
     }
     if (type === 'TOGGLE_DISPATCH') {
       if (!state.open && state.service.phase!=='TESTS' && !state.dispatchEnabled) return rejected("Sélectionnez Tests ou ouvrez l’attraction avant d’autoriser les départs.");
