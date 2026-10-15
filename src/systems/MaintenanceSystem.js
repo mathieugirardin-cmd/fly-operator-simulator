@@ -16,7 +16,7 @@ export class MaintenanceSystem {
   create(equipment,description) {
     const s=this.engine.state,m=s.maintenance,def=EQUIPMENT.find(x=>x.id===equipment);
     if(!def||this.has(equipment)||m.incidents.filter(x=>x.status!=='RESOLVED').length>=3)return null;
-    const item={id:`INC-${String(m.nextId++).padStart(4,'0')}`,equipment,severity:def.severity,description:description||def.label,consequence:def.consequence,status:'OPEN',priority:def.severity==='major'?3:def.severity==='medium'?2:1,elapsed:0,createdAt:s.time,startedAt:null,resolvedAt:null,history:[]};
+    const item={scoreAwarded:false,id:`INC-${String(m.nextId++).padStart(4,'0')}`,equipment,severity:def.severity,description:description||def.label,consequence:def.consequence,status:'OPEN',priority:def.severity==='major'?3:def.severity==='medium'?2:1,elapsed:0,createdAt:s.time,startedAt:null,resolvedAt:null,history:[]};
     m.incidents.push(item);this.history(item,'Incident détecté');s.stats.incidents++;
     if(equipment.startsWith('locker:')){const l=this.engine.lockers.get(equipment.slice(7));l.fault='Porte bloquée (simulation)';this.engine.lockers.refresh(l);}
     if(def.severity==='major')m.quietUntil=s.time+600;
@@ -33,7 +33,7 @@ export class MaintenanceSystem {
     if(type==='CALL_MAINTENANCE'){if(item.status!=='OPEN')return no('Intervention déjà demandée.');item.status='QUEUED';this.history(item,'Maintenance appelée');return ok('Demande ajoutée à la file des techniciens.');}
     if(type==='VERIFY_REPAIR'){if(item.status!=='VERIFY')return no('Attendez la fin de la réparation.');item.status='READY';this.history(item,'Vérification finale statique conforme');return ok('Vérification conforme ; remise en service disponible.');}
     if(item.status!=='READY')return no('Une vérification finale est nécessaire.');
-    item.status='RESOLVED';item.resolvedAt=this.engine.state.time;m.resolved++;m.totalRepairTime+=item.resolvedAt-item.startedAt;this.history(item,'Remis en service');
+    item.status='RESOLVED';item.resolvedAt=this.engine.state.time;m.resolved++;m.totalRepairTime+=item.resolvedAt-item.startedAt;this.history(item,'Remis en service');this.engine.score.incident(item);
     if(item.severity==='major')m.quietUntil=item.resolvedAt+600;
     if(item.equipment.startsWith('locker:')){const l=this.engine.lockers.get(item.equipment.slice(7));l.fault=null;this.engine.lockers.refresh(l);}
     if(item.equipment.startsWith('harness:')){const t=this.engine.state.trains.find(t=>t.id===item.equipment.slice(8));for(const r of t.restraints)if(r.state==='TECHNICAL')r.state='CLOSED';t.rows.fill(false);}

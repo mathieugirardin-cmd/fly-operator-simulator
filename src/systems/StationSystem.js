@@ -6,7 +6,7 @@ export class StationSystem {
     return this.engine.state.trains.find((train) => train.blockId === 'LOAD' && train.progress >= 1&&train.state!=='GARAGING') ?? null;
   }
   reset() {
-    Object.assign(this.engine.state.station, { gatesOpen: false, platformClear: false, loadingProgress: 0, autoTimer: 0 });
+    Object.assign(this.engine.state.station, { gateMotion:0,harnessMotion:0,gatesOpen: false, platformClear: false, loadingProgress: 0, autoTimer: 0 });
   }
   unload(train, dt) {
     const { state } = this.engine;
@@ -14,7 +14,7 @@ export class StationSystem {
       train.dwell = Math.min(SIMULATION_CONFIG.unloadingDuration, train.dwell + dt);
       const remaining=Math.ceil(train.loadingTarget*(1-train.dwell/SIMULATION_CONFIG.unloadingDuration)-1e-8);
       const leaving=Math.max(0,train.passengers-remaining);
-      for(const id of train.passengerIds.splice(0,leaving)){state.flow.egress.push({id,stage:'unloading',remaining:state.flow.room.travelDuration});state.visitors.transported++;train.passengers--;}
+      for(const id of train.passengerIds.splice(0,leaving)){this.engine.score.returned(id);state.flow.egress.push({id,stage:'unloading',remaining:state.flow.room.travelDuration});state.visitors.transported++;train.passengers--;}
       if (train.dwell + 1e-9 < SIMULATION_CONFIG.unloadingDuration) return;
       if(train.passengers>0)return;
       if(train.testInProgress){train.testValid=true;train.testInProgress=false;this.engine.log('success',`${train.id} · cycle de test à vide validé.`);}
@@ -29,6 +29,8 @@ export class StationSystem {
   }
   update(dt) {
     const { state } = this.engine;
+    if(!state.emergency){state.station.gateMotion=Math.max(0,state.station.gateMotion-dt);state.station.harnessMotion=Math.max(0,state.station.harnessMotion-dt);}
+    if(state.station.gateMotion>1e-9||state.station.harnessMotion>1e-9)return;
     const testing=state.service.phase==='TESTS';
     if (!state.initialized || (!state.open&&!testing) || state.mode !== 'auto' || state.emergency || state.hold || !state.dispatchEnabled) return;
     const train = this.train();

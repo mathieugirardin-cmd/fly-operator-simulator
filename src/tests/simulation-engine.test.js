@@ -17,6 +17,7 @@ const until = (engine, predicate, maxSeconds = 180) => {
 const command = (engine, type, payload = {}) => {
   const result = engine.command(type, payload);
   expect(result, `${type}: ${result.message}`).toMatchObject({ status: 'accepted' });
+  if(['TOGGLE_GATES','CLOSE_HARNESSES','OPEN_HARNESSES'].includes(type))run(engine,.8);
   return result;
 };
 const trainAtQuay = (engine) => engine.state.trains.find((train) => train.blockId === 'LOAD' && train.progress === 1);

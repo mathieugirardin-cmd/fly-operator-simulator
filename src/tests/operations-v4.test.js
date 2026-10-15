@@ -53,7 +53,7 @@ describe('deux postes et inventaire caché',()=>{
   });
 });
 describe('retenues et maintenance',()=>{
-  const loaded=()=>{const e=open();until(e,()=>e.stations.train()&&e.lockers.readyIds().length===20);e.command('TOGGLE_GATES');e.command('LOAD');e.update(6);e.command('TOGGLE_GATES');return e;};
+  const loaded=()=>{const e=open();until(e,()=>e.stations.train()&&e.lockers.readyIds().length===20);e.command('TOGGLE_GATES');e.update(.8);e.command('LOAD');e.update(6);e.command('TOGGLE_GATES');e.update(.8);return e;};
   it.each([['MISPOSITION','HARNESS_RECLOSE'],['RECHECK','HARNESS_RECHECK'],['UNFIT','HARNESS_EXIT']])('traite %s sans autoriser une retenue non conforme', (cause,action)=>{
     const e=loaded();e.command('SET_HARNESS_CONFIG',{field:'harnessIncidents',value:true});for(const key of Object.keys(e.state.operations.probabilities))e.command('SET_HARNESS_CONFIG',{field:key,value:key===cause?1:0});
     e.command('CLOSE_HARNESSES');e.update(8);const t=e.stations.train(),seat=t.restraints.findIndex(r=>r.state===cause);expect(seat).toBeGreaterThanOrEqual(0);

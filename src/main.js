@@ -1,6 +1,7 @@
 import './styles/main.css';
 import './styles/operations.css';
 import './styles/console.css';
+import './styles/living-plan.css';
 import { SimulationEngine } from './core/SimulationEngine.js';
 import { ThreeRenderer } from './rendering/ThreeRenderer.js';
 import { Map2DRenderer } from './rendering/Map2DRenderer.js';
@@ -11,9 +12,17 @@ import {ConsoleLayout} from './ui/ConsoleLayout.js';
 import { TRACK } from './config/track.js';
 import { Dashboard } from './ui/Dashboard.js';
 import { SaveManager } from './services/SaveManager.js';
+import {AudioDirector} from './services/AudioDirector.js';
+import {KeyboardController} from './ui/KeyboardController.js';
 
 let engine = new SimulationEngine();
 const saves = new SaveManager();
+const audio=new AudioDirector();
+let stopAudioEvents;
+function bindAudio(){stopAudioEvents?.();audio.reset(engine.state);stopAudioEvents=engine.on('effect',effect=>audio.effect(effect,engine.state));}
+bindAudio();
+document.addEventListener('pointerdown',()=>audio.unlock(),{capture:true});
+document.addEventListener('keydown',event=>{if(!event.repeat)audio.unlock();},{capture:true});
 let renderer;
 let map;
 let queueView;
@@ -25,7 +34,7 @@ let lastAutosave = 0;
 let saveInFlight = false;
 const ui = new Dashboard(document.querySelector('#app'), {
   command(type, payload) {
-    const result = engine.command(type, payload);
+    const result = engine.command(type, payload);audio.sync(engine.state,document.hidden);
     ui.toast(result.message, result.status);
     ui.update(engine.state, true);
     map?.update(engine.state);
@@ -53,6 +62,7 @@ const ui = new Dashboard(document.querySelector('#app'), {
     try {
       await saves.clear();
       engine = new SimulationEngine();
+      bindAudio();
       lastAutosave = performance.now();
       ui.update(engine.state,true);
       ui.setCamera('station');
@@ -84,6 +94,10 @@ operationsPanel=new OperationsPanel(workbench,{onCommand:(type,payload)=>ui.hand
 operationsPanel.update(engine.state);
 consoleLayout=new ConsoleLayout(document.querySelector('#app'),{onCommand:(type,payload)=>ui.handlers.command(type,payload),onCamera:id=>ui.setCamera(id),onDrawer:id=>ui.navigate(id),onSeat:index=>{operationsPanel.selectedSeat=index;operationsPanel.update(engine.state);},onToast:(message,status)=>ui.toast(message,status)});
 consoleLayout.update(engine.state);
+const keyboard=new KeyboardController({state:()=>engine.state,command:(type,payload)=>ui.handlers.command(type,payload),blocked:target=>!!document.querySelector('dialog[open]')||!!target?.closest?.('input,textarea,select,[contenteditable="true"],[role="menu"],[role="listbox"],[role="combobox"]')});
+document.addEventListener('keydown',event=>keyboard.down(event));
+document.addEventListener('keyup',event=>keyboard.up(event));
+window.addEventListener('blur',()=>keyboard.release());
 ui.setCamera('station');
 
 function showRendererError(error) {
@@ -117,6 +131,7 @@ async function restoreGame() {
     const restored=new SimulationEngine();
     restored.restore(saved.snapshot);
     engine=restored;
+    bindAudio();
     lastAutosave=performance.now();
     ui.update(engine.state,true);
     ui.toast('Partie restaurée. Cohérence des trains et cantons vérifiée.');
@@ -128,13 +143,15 @@ async function restoreGame() {
 let previous=performance.now();
 document.addEventListener('visibilitychange',()=>{
   previous=performance.now();
+  audio.sync(engine.state,document.hidden);keyboard.release();
   if(document.hidden && engine.state.initialized) saveGame();
 });
 function frame(now) {
   const dt=Math.max(0,(now-previous)/1000); previous=now;
   if(!document.hidden) {
     engine.update(Math.min(dt,1));
-    renderer?.update(engine.state,dt);
+    audio.sync(engine.state,false);
+    renderer?.update(engine.state,engine.state.runtime.paused||engine.state.emergency?0:dt*engine.state.runtime.speed);
     if(now-lastDraw>=100) {ui.update(engine.state);map?.update(engine.state);queueView?.update(engine.state,Math.min(.3,(now-lastDraw)/1000));lockerPanel?.update(engine.state);operationsPanel?.update(engine.state);consoleLayout?.update(engine.state);lastDraw=now;}
     if(engine.state.initialized && now-lastAutosave>=30000) {lastAutosave=now;saveGame();}
   }

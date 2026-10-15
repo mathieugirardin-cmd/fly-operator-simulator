@@ -57,7 +57,7 @@ export class HarnessSystem {
   update(dt) {
     const s=this.engine.state;if(s.emergency)return;
     for(const t of s.trains)if(t.harness==='open')this.syncOpen(t);
-    const t=this.engine.stations.train();if(!t||t.harness!=='closed'||s.station.gatesOpen||!s.operations.autoHarness)return;
+    const t=this.engine.stations.train();if(s.station.gateMotion>1e-9||s.station.harnessMotion>1e-9)return;if(!t||t.harness!=='closed'||s.station.gatesOpen||!s.operations.autoHarness)return;
     if(this.engine.maintenance.has(`harness:${t.id}`))return;
     t.harnessTimer+=dt;if(t.harnessTimer<.7)return;t.harnessTimer=0;
     const row=t.rows.findIndex((checked,index)=>!checked&&t.restraints.slice(index*2,index*2+2).every(r=>['EMPTY','CLOSED','VERIFIED'].includes(r.state)));

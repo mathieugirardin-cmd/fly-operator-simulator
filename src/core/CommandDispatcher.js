@@ -1,6 +1,7 @@
 import { transition } from './StateMachine.js';
 import {refreshLocker} from '../systems/LockerSystem.js';
 
+const presentAudio=p=>p&&(['volume','music'].includes(p.field)&&Number.isFinite(p.value)&&p.value>=0&&p.value<=1||p.field==='muted'&&typeof p.value==='boolean');
 const result = (status, message) => ({ status, message });
 const accepted = (message) => result('accepted', message);
 const rejected = (message) => result('rejected', message);
@@ -21,6 +22,8 @@ export class CommandDispatcher {
     if(state.service.phase==='TESTS'&&train.passengers)return 'Un test doit être effectué à vide.';
     if(state.service.phase==='OPERATION'&&!train.testValid)return 'Ce train doit terminer un test à vide avant le service visiteurs.';
     if(['gates','sensor','supervision',`harness:${train.id}`,`train:${train.id}`].some(id=>this.engine.maintenance.has(id)))return 'Un équipement nécessaire au départ est en maintenance.';
+    if(state.station.gateMotion>1e-9||state.station.harnessMotion>1e-9)return 'Attendez la fin des mouvements des portiques et harnais.';
+    if(state.visitors.boarding||train.boardingIds.length)return 'Des visiteurs traversent encore la zone de sécurité.';
     if (train.state === 'LOADING') return "L'embarquement est encore en cours.";
     if (state.station.gatesOpen) return "Fermez les portillons d'accès avant le départ.";
     if (train.harness !== 'closed') return 'Fermez les harnais avant le départ.';
@@ -36,6 +39,12 @@ export class CommandDispatcher {
     const { engine } = this;
     const { state, stations, blocks, trains, visitors } = engine;
     if (typeof type !== 'string' || !payload || typeof payload !== 'object' || Array.isArray(payload)) return rejected('Commande invalide.');
+    if(type==='SET_AUDIO'){
+      if(presentAudio(payload)){state.audio[payload.field]=payload.value;return accepted('Réglage audio appliqué.');}return rejected('Réglage audio invalide.');
+    }
+    if(type==='SET_RUNTIME'){
+      if(payload.field==='paused'&&typeof payload.value==='boolean'||payload.field==='speed'&&[.5,1,2,4].includes(payload.value)){state.runtime[payload.field]=payload.value;return accepted(state.runtime.paused?'Simulation en pause.':`Simulation ×${state.runtime.speed}.`);}return rejected('Réglage temporel invalide.');
+    }
     if (type === 'EMERGENCY_STOP') {
       if (state.emergency) return rejected("L'arrêt d'urgence est déjà actif.");
       state.emergency = true;
@@ -81,7 +90,7 @@ export class CommandDispatcher {
     if(type==='SET_ARRIVAL_RATE') {
       if(!Number.isInteger(payload.rate)||payload.rate<0||payload.rate>120)return rejected('Choisissez un débit entier entre 0 et 120 visiteurs par minute.');
       state.visitors.arrivalRate=payload.rate;
-      state.flow.lanes.standard.rate=payload.rate;
+      state.flow.lanes.standard.rate=payload.rate;state.flow.arrivals.totalRate=payload.rate;
       return accepted(`Arrivées réglées à ${payload.rate} visiteurs par minute.`);
     }
     if(type==='ADD_VISITORS') {
@@ -196,11 +205,12 @@ export class CommandDispatcher {
     const train = stations.train();
     if (!train) return rejected("Attendez l'immobilisation d'un train au quai d'embarquement.");
     if (blocks.get('LOAD').blocked || !train.available) return fault("Le train ou le canton d'embarquement est indisponible.");
+    if(['TOGGLE_GATES','LOAD','CLOSE_HARNESSES','OPEN_HARNESSES','CHECK_ROW','CHECK_ALL','CLEAR_PLATFORM'].includes(type)&&(state.station.gateMotion>1e-9||state.station.harnessMotion>1e-9))return rejected('Mouvement en cours : attendez la confirmation.');
     if (type === 'TOGGLE_GATES') {
       if(engine.maintenance.has('gates'))return fault('Portillons indisponibles ; appelez la maintenance.');
       if (train.state === 'LOADING'&&!state.station.gatesOpen) return rejected('Les passages engagés terminent leur trajet ; attendez avant de rouvrir.');
       if (!state.station.gatesOpen && train.harness !== 'open') return rejected("Ouvrez les harnais avant d'ouvrir les portillons.");
-      state.station.gatesOpen = !state.station.gatesOpen;
+      state.station.gatesOpen = !state.station.gatesOpen;state.station.gateMotion=.8;
       state.station.platformClear = false;
       if (state.station.gatesOpen) train.rows.fill(false);
       return accepted(state.station.gatesOpen ? "Portillons ouverts · accès au train autorisé." : 'Portillons fermés · contrôlez le quai.');
@@ -219,7 +229,7 @@ export class CommandDispatcher {
       if (train.state === 'LOADING') return rejected("Attendez la fin de l'embarquement avant de fermer les harnais.");
       if (state.station.gatesOpen) return rejected('Fermez les portillons avant de fermer les harnais.');
       if (train.harness === 'closed') return rejected('Les harnais sont déjà fermés.');
-      train.harness = 'closed';
+      train.harness = 'closed';state.station.harnessMotion=.8;state.station.platformClear=false;
       train.rows.fill(false);
       engine.harness.close(train);
       transition(train, 'CHECKING');
@@ -227,7 +237,8 @@ export class CommandDispatcher {
     }
     if (type === 'OPEN_HARNESSES') {
       if (train.state === 'LOADING') return rejected("L'embarquement est en cours, les harnais sont déjà ouverts.");
-      train.harness = 'open';
+      if(train.harness==='open')return rejected('Les harnais sont déjà ouverts.');
+      train.harness = 'open';state.station.harnessMotion=.8;
       train.rows.fill(false);
       state.station.platformClear = false;
       if (train.state !== 'EMPTY') transition(train, 'EMPTY');
@@ -243,7 +254,7 @@ export class CommandDispatcher {
       return accepted(type === 'CHECK_ALL' ? `${train.rows.filter(Boolean).length}/10 rangées conformes ; les défauts restent bloquants.` : `Rangée ${payload.index + 1} ${train.rows[payload.index] ? 'vérifiée' : 'à revérifier'}.`);
     }
     if (type === 'CLEAR_PLATFORM') {
-      if (train.state === 'LOADING' || state.station.gatesOpen) return rejected("Fermez les portillons et terminez l'embarquement avant le contrôle du quai.");
+      if (train.state === 'LOADING' || state.visitors.boarding>0 || train.boardingIds.length>0 || state.station.gatesOpen) return rejected("Fermez les portillons et terminez l'embarquement avant le contrôle du quai.");
       state.station.platformClear = true;
       return accepted('Quai contrôlé et confirmé libre.');
     }

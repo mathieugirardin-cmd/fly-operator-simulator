@@ -5,9 +5,9 @@ export const FLOW_STAGES=['queue','preshow','lockers','security','ready','transi
 export const flowVisitor=(id,time=0,lane='standard')=>({id,lane,stage:'queue',arrivedAt:time,inventory:[],recheck:false,transit:null});
 export function createFlow(count=48) {
   return {
-    people:Array.from({length:count},(_,i)=>flowVisitor(i+1)),order:[],mergeCursor:0,egress:[],room:{lockerCapacity:120,securityCapacity:24,readyCapacity:40,lockerBatch:20,travelDuration:2,queueCapacity:1000},
+    arrivals:{totalRate:60,fastPercent:20,timer:0,cursor:0},people:Array.from({length:count},(_,i)=>flowVisitor(i+1)),order:[],mergeCursor:0,egress:[],room:{lockerDoorOpen:true,lockerCapacity:120,securityCapacity:24,readyCapacity:40,lockerBatch:20,travelDuration:2,queueCapacity:1000},
     lanes:{standard:{open:true,capacity:600,rate:60,timer:0,arrived:count,admitted:0,wait:null,history:[]},fast:{open:true,capacity:160,rate:0,timer:0,arrived:0,admitted:0,wait:null,history:[]}},
-    ratio:3,preshow:{state:'CLOSED',auto:true,capacity:80,groupSize:20,entryRate:2,exitRate:2,duration:8,entranceOpen:false,exitOpen:false,elapsed:0,admissionTimer:0,batch:[],resume:null,cycles:0},
+    ratio:3,preshow:{state:'CLOSED',auto:true,capacity:80,groupSize:20,entryRate:2,exitRate:2,exitTotal:0,duration:8,entranceOpen:false,exitOpen:false,elapsed:0,admissionTimer:0,batch:[],resume:null,cycles:0},
     security:{controlled:null,stations:['SEC-01','SEC-02'].map(id=>({id,open:true,visitorId:null,elapsed:0,inspected:false,extra:false})),duration:2,rules:INVENTORY.map(()=>true)},
     metrics:{checks:0,returns:0,penalties:0,waitSum:0,boarded:0,exited:0,departed:0,dispatches:[],deposits:[],checksHistory:[],admissions:[],historyTimer:0},
   };
@@ -27,6 +27,11 @@ export class FlowSystem {
   command(type,p={}) {
     const s=this.engine.state,f=s.flow,show=f.preshow;
     const ok=message=>({status:'accepted',message}),no=message=>({status:'rejected',message});
+    if(type==='SET_ARRIVALS'){
+      const a=f.arrivals;
+      if(!['totalRate','fastPercent'].includes(p.field)||!Number.isInteger(p.value)||p.value<0||p.value>(p.field==='totalRate'?240:100))return no('Débit total ou proportion Fast Pass invalide.');
+      a[p.field]=p.value;return ok('Arrivées totales partagées entre les deux files.');
+    }
     if(type==='SET_FLOW_CONFIG') {
       const limits={capacity:[1,120],groupSize:[1,120],entryRate:[1,10],exitRate:[1,10],duration:[5,180],ratio:[1,10],securityDuration:[1,15],lockerCapacity:[40,120],lockerBatch:[1,40]};
       if(!limits[p.field]||!Number.isInteger(p.value)||p.value<limits[p.field][0]||p.value>limits[p.field][1])return no('Réglage hors limites.');
@@ -42,9 +47,11 @@ export class FlowSystem {
       else if(p.field==='rate'&&Number.isInteger(p.value)&&p.value>=0&&p.value<=120)lane.rate=p.value;
       else if(p.field==='capacity'&&Number.isInteger(p.value)&&p.value>=1&&p.value<=800&&p.value>=f.people.filter(v=>v.stage==='queue'&&v.lane===p.lane).length)lane.capacity=p.value;
       else return no('Réglage de file invalide ou capacité inférieure à son occupation.');
+      if(p.field==='rate'){const total=f.lanes.standard.rate+f.lanes.fast.rate;f.arrivals.totalRate=total;f.arrivals.fastPercent=total?f.lanes.fast.rate/total*100:0;}
       if(p.lane==='standard'){s.visitors.queueOpen=lane.open;s.visitors.arrivalRate=lane.rate;}return ok('File mise à jour.');
     }
     if(type==='PRESHOW_AUTO'){show.auto=!show.auto;return ok(show.auto?'Préshow automatique.':'Préshow sous contrôle manuel.');}
+    if(type==='TOGGLE_LOCKER_DOOR'){f.room.lockerDoorOpen=!f.room.lockerDoorOpen;return ok(f.room.lockerDoorOpen?'Passage vers les casiers ouvert.':'Passage fermé ; les trajets engagés se terminent.');}
     if(type==='PRESHOW_OPEN') {
       if(!s.open||show.state!=='CLOSED'||this.blocked('preshow'))return no('Ouvrez l’attraction ; la salle doit être vide et disponible.');
       show.state='OPENING';show.entranceOpen=true;show.exitOpen=false;show.elapsed=0;return ok('Ouverture des portes d’entrée.');
@@ -61,7 +68,7 @@ export class FlowSystem {
     }
     if(type==='PRESHOW_EXIT') {
       if(show.state!=='FINISHED'||this.blocked('preshow'))return no('La présentation doit être terminée.');
-      show.state='EXITING';show.exitOpen=true;show.elapsed=0;show.admissionTimer=0;return ok('Sortie ouverte vers les casiers.');
+      show.exitTotal=show.batch.length;show.state='EXITING';show.exitOpen=true;show.elapsed=0;show.admissionTimer=0;return ok('Sortie ouverte vers les casiers.');
     }
     if(type==='PRESHOW_EXIT_CLOSE'){if(show.state!=='EXITING')return no('La sortie n’est pas ouverte.');show.exitOpen=false;return ok('Sortie fermée ; les passages engagés se terminent.');}
     if(type==='PRESHOW_EXIT_RESUME'){if(show.state!=='EXITING')return no('La salle n’est pas en vidage.');show.exitOpen=true;return ok('Sortie rouverte.');}
@@ -112,7 +119,7 @@ export class FlowSystem {
         if(!this.engine.lockers.forVisitor(person.id)){person.stage='exiting';person.remaining=f.room.travelDuration;}
       } else {
         person.remaining=Math.max(0,person.remaining-dt);
-        if(person.remaining<=1e-9){if(person.stage==='unloading'){this.engine.lockers.retrieve([person.id]);person.stage='retrieval';}else{f.egress.splice(f.egress.indexOf(person),1);f.metrics.departed++;}}
+        if(person.remaining<=1e-9){if(person.stage==='unloading'){this.engine.lockers.retrieve([person.id]);person.stage='retrieval';}else{this.engine.score.exit(person.id);f.egress.splice(f.egress.indexOf(person),1);f.metrics.departed++;}}
       }
     }
     if(this.blocked('preshow')){if(show.state!=='INCIDENT'){show.resume=show.state;show.state='INCIDENT';}}
@@ -135,8 +142,8 @@ export class FlowSystem {
       if(show.auto&&show.state==='FINISHED')this.command('PRESHOW_EXIT');
       if(show.state==='EXITING'&&show.exitOpen) {
         show.admissionTimer=Math.min(1/show.exitRate,show.admissionTimer+dt);
-        if(show.admissionTimer>=1/show.exitRate-1e-9&&this.occupancy('lockers')<f.room.lockerCapacity-2&&f.people.filter(p=>p.transit?.to==='lockers').length<f.room.lockerBatch) {
-          show.admissionTimer=0;const id=show.batch.shift();if(id!==undefined){this.move(this.person(id),'lockers');f.order.push(id);f.metrics.admissions.push({time:s.time,count:1});}
+        if(show.admissionTimer>=1/show.exitRate-1e-9&&f.room.lockerDoorOpen&&this.occupancy('lockers')<f.room.lockerCapacity-2&&f.people.filter(p=>p.transit?.to==='lockers').length<f.room.lockerBatch) {
+          show.admissionTimer=0;const id=show.batch.shift();if(id!==undefined){const person=this.person(id);if(!person||person.stage!=='preshow')throw new Error('Sortie préshow incohérente');this.move(person,'lockers');f.order.push(id);f.metrics.admissions.push({time:s.time,count:1});}
         }
         if(!show.batch.length&&!f.people.some(p=>p.transit?.from==='preshow')){show.state='CLOSED';show.elapsed=0;show.exitOpen=false;}
       }
@@ -162,7 +169,7 @@ export class FlowSystem {
   }
   board(ids) {
     const s=this.engine.state,f=s.flow,set=new Set(ids);
-    for(const p of f.people)if(set.has(p.id)){f.metrics.waitSum+=s.time-p.arrivedAt;f.metrics.boarded++;}
+    for(const p of f.people)if(set.has(p.id)){this.engine.score.commit(p.id,p.arrivedAt);}
     f.people=f.people.filter(p=>!set.has(p.id));f.order=f.order.filter(id=>!set.has(id));
   }
 }

@@ -1,3 +1,5 @@
+import {ScoreSystem,createScore,validateScore} from '../systems/ScoreSystem.js';
+import {acousticState,acousticTransitions} from './PresentationState.js';
 import { TRACK, NEXT_BLOCK, SIMULATION_CONFIG } from '../config/track.js';
 import { EventBus } from './EventBus.js';
 import { SimulationClock } from './SimulationClock.js';
@@ -21,14 +23,14 @@ function initialState(seed) {
   const blocks = createBlocks();
   blocks.find((block) => block.id === 'RETURN').occupiedBy = 'T01';
   return {
-    version: 5, time: 0, initialized: false, open: false, mode: 'manual',
+    version: 6, score:createScore(), runtime:{paused:false,speed:1}, audio:{volume:.6,music:.35,muted:false}, time: 0, initialized: false, open: false, mode: 'manual',
     emergency: false, emergencyAcknowledged: false, hold: false, dispatchEnabled: false,
     trains: createTrains(), blocks,
     lockers:createLockerState(),
     flow:createFlow(SIMULATION_CONFIG.initialQueue),
     maintenance:createMaintenance(),operations:createOperations(),
     service:createService(),
-    station: { gatesOpen: false, platformClear: false, loadingProgress: 0, autoTimer: 0 },
+    station: { gateMotion:0, harnessMotion:0, gatesOpen: false, platformClear: false, loadingProgress: 0, autoTimer: 0 },
     visitors: { queue: SIMULATION_CONFIG.initialQueue, boarding: 0, transported: 0, totalArrived: SIMULATION_CONFIG.initialQueue, queueOpen:true, arrivalRate:60 },
     stats: {
       transported: 0, dispatches: 0, fillRate: 0, activeTrains: 1, incidents: 0,
@@ -45,7 +47,7 @@ const finite = (value, min = 0, max = Number.MAX_SAFE_INTEGER) => Number.isFinit
 const integer = (value, min = 0, max = Number.MAX_SAFE_INTEGER) => Number.isSafeInteger(value) && value >= min && value <= max;
 const boolean = (value) => typeof value === 'boolean';
 
-export function validateSnapshot(data, definitions=TRACK, version=5) {
+export function validateSnapshot(data, definitions=TRACK, version=6) {
   const assert = (condition, message) => { if (!condition) throw new Error(`Sauvegarde incohérente : ${message}`); };
   assert(isRecord(data) && data.version === version, 'format ou version non pris en charge.');
   assert(finite(data.time), 'horloge invalide.');
@@ -149,6 +151,15 @@ export function validateSnapshot(data, definitions=TRACK, version=5) {
   if(version>=4)validateFlow(data,assert);
   if(version>=4){validateMaintenance(data,assert);validateHarness(data,assert);}
   if(version>=5)validateService(data,assert);
+  if(version>=6){
+    validateScore(data,assert);
+    assert(data.runtime&&typeof data.runtime.paused==='boolean'&&[.5,1,2,4].includes(data.runtime.speed),'vitesse ou pause invalide.');
+    assert(data.audio&&typeof data.audio.muted==='boolean'&&finite(data.audio.volume,0,1)&&finite(data.audio.music,0,1),'audio invalide.');
+    assert(finite(data.station.gateMotion,0,.8)&&finite(data.station.harnessMotion,0,.8),'animation de gare invalide.');
+    assert(typeof data.flow.room.lockerDoorOpen==='boolean','porte casiers invalide.');
+    const a=data.flow.arrivals;assert(a&&integer(a.totalRate,0,240)&&finite(a.fastPercent,0,100)&&finite(a.timer,0,1)&&finite(a.cursor,0,100),'arrivées partagées invalides.');
+    assert(integer(data.flow.preshow.exitTotal,0,120),'lot sortant invalide.');
+  }
   if(version>=3)validateLockers(data,assert);
   assert(isRecord(data.stats), 'statistiques absentes.');
   for (const field of ['transported','dispatches','activeTrains','incidents','totalDispatchedPassengers','hourlyThroughput','estimatedWait']) assert(integer(data.stats[field]), `statistique ${field} invalide.`);
@@ -185,22 +196,26 @@ export class SimulationEngine {
     this.stations = new StationSystem(this);
     this.visitors = new VisitorSystem(this);
     this.flow = new FlowSystem(this);
+    this.score = new ScoreSystem(this);
     this.maintenance = new MaintenanceSystem(this);
     this.harness = new HarnessSystem(this);
     this.service = new ServiceSystem(this);
     this.lockers = new LockerSystem(this);
     this.statistics = new StatisticsSystem(this);
     this.dispatcher = new CommandDispatcher(this);
+    this.acoustics=acousticState(this.state);
     this.log('info', "Console prête · initialisez le système pour acheminer T01 vers la gare.");
   }
   on(type, callback) { return this.bus.on(type, callback); }
   update(deltaSeconds) {
-    const steps = this.clock.update(deltaSeconds, (dt) => this.step(dt));
+    if(this.state.runtime.paused)return 0;
+    const steps = this.clock.update(deltaSeconds*this.state.runtime.speed, (dt) => this.step(dt));
     this.state.clockAccumulator = this.clock.accumulator;
     return steps;
   }
   step(dt = SIMULATION_CONFIG.fixedStep) {
     if (!Number.isFinite(dt) || dt <= 0) throw new Error('Le pas de simulation doit être un nombre positif.');
+    if(this.state.runtime.paused)return;
     this.state.time += dt;
     this.maintenance.update(dt);
     this.trains.update(dt);
@@ -210,10 +225,12 @@ export class SimulationEngine {
     this.harness.update(dt);
     this.stations.update(dt);
     this.statistics.update(dt);
+    this.flushEffects();
     this.state.clockAccumulator = this.clock.accumulator;
   }
   command(type, payload = {}) {
     const outcome = this.dispatcher.dispatch(type, payload);
+    this.flushEffects();
     for(const train of this.state.trains)if(train.harness==='open')this.harness.syncOpen(train);
     this.state.lastResult = outcome;
     this.statistics.update(0);
@@ -230,6 +247,7 @@ export class SimulationEngine {
     if (state.events.length > SIMULATION_CONFIG.eventLimit) state.events.splice(0, state.events.length - SIMULATION_CONFIG.eventLimit);
     this.bus.emit('event', { ...event });
   }
+  flushEffects(){const next=acousticState(this.state),effects=acousticTransitions(this.acoustics,next);this.acoustics=next;for(const effect of effects)this.bus.emit('effect',effect);}
   snapshot() {
     this.state.clockAccumulator = this.clock.accumulator;
     return structuredClone(this.state);
@@ -288,8 +306,21 @@ export class SimulationEngine {
       f.lanes.standard.capacity=Math.max(400,f.lanes.standard.capacity);for(const p of f.people)p.transit=null;
       candidate.version=5;
     }
+    if(candidate?.version===5){
+      validateSnapshot(candidate,TRACK,5);
+      candidate.score=createScore();candidate.runtime={paused:false,speed:1};candidate.audio={volume:.6,music:.35,muted:false};
+      Object.assign(candidate.station,{gateMotion:0,harnessMotion:0});
+      const f=candidate.flow,total=f.lanes.standard.rate+f.lanes.fast.rate;
+      f.arrivals={totalRate:total,fastPercent:f.lanes.fast.rate&&total?f.lanes.fast.rate/total*100:f.lanes.fast.open?20:0,timer:0,cursor:0};
+      f.preshow.exitTotal=f.preshow.batch.length+f.people.filter(p=>p.transit?.from==='preshow').length;
+      f.room.lockerDoorOpen=true;
+      for(const t of candidate.trains)for(const id of [...t.passengerIds,...t.boardingIds])candidate.score.journeys[id]={arrivedAt:null,boardedAt:t.passengerIds.includes(id)?candidate.time:null,rode:false};
+      for(const i of candidate.maintenance.incidents)i.scoreAwarded=i.status==='RESOLVED';
+      candidate.version=6;
+    }
     validateSnapshot(candidate);
     this.state = candidate;
+    this.acoustics=acousticState(candidate);
     this.clock.accumulator = candidate.clockAccumulator;
     this.bus.emit('restored', this.snapshot());
     return this.snapshot();

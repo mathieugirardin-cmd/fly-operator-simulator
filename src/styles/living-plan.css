@@ -1,0 +1,36 @@
+.console-occupancy{background:radial-gradient(ellipse at 40% 30%,#263b40,#172329 80%)}
+.console-center{grid-template-rows:minmax(0,1fr) minmax(230px,42%)}
+.floor-halls polyline{fill:none;stroke:#566970;stroke-width:15;stroke-linejoin:round;stroke-linecap:round}
+.floor-wall{fill:#23353c;stroke:#81959b;stroke-width:2}.floor-room.fast .floor-wall{fill:#3d382b;stroke:#be9d5f}
+.floor-room.preshow .floor-wall{fill:#2e3848}.floor-room.security .floor-wall{fill:#243e38}
+.floor-room.selected .floor-wall{stroke:#edc782;stroke-width:3}.floor-room.full .floor-wall{stroke:#ef9e6b}
+.floor-name{fill:#d9e7e9;font:600 13px 'Segoe UI',sans-serif;letter-spacing:.3px}
+.floor-count{fill:#f0dbb5;font:15px Consolas,monospace}.floor-status{fill:#adbdc4;font:11px 'Segoe UI',sans-serif}
+.floor-command{cursor:pointer}.floor-command rect{fill:#452a2a;stroke:#b75b55}.floor-command text{fill:#ffd6cd;font:11px 'Segoe UI',sans-serif;pointer-events:none}
+.floor-command.door-open rect{fill:#234b3a;stroke:#78c7a5}.floor-command.door-open text{fill:#c4f3d9}
+.floor-command.show-start rect{fill:#384653;stroke:#879fb1}.floor-command.show-start text{fill:#daeaff}
+.floor-command[aria-disabled=true]{opacity:.45;cursor:not-allowed}.floor-command:focus rect{stroke:#fff2bf;stroke-width:3}
+.floor-people{pointer-events:none}.floor-people use{stroke:#18242a;stroke-width:.25}
+.console-score{font:600 16px Consolas,monospace;color:#f1d38a;white-space:nowrap}.score-gain{margin-left:auto;color:#e5c87b;font:11px Consolas,monospace;white-space:nowrap}
+.console-utilities select{background:#283941;color:#dce5e5;border:1px solid #58636a;border-radius:4px;font:11px Consolas;width:52px}
+.fullscreen-console .check-button{background:linear-gradient(#39454c,#242f35);border:1px solid #63727a;border-bottom:3px solid #101b20;box-shadow:inset 0 1px #ffffff29,0 2px 3px #0008;position:relative;min-width:0}
+.fullscreen-console .check-button:active{transform:translateY(1px);box-shadow:inset 0 2px 4px #0008}
+.fullscreen-console .check-button .check-light{background:#586168;box-shadow:inset 0 0 3px #000;flex-shrink:0}
+.fullscreen-console .check-button[data-lamp=confirmed] .check-light{background:#6bd399;box-shadow:0 0 7px #6bd39980}
+.fullscreen-console .check-button[data-lamp=red] .check-light{background:#e96960;box-shadow:0 0 7px #e9696070}
+.fullscreen-console .check-button[data-lamp=amber] .check-light,.fullscreen-console .check-button[data-lamp=moving] .check-light,.fullscreen-console .check-button[data-lamp=open] .check-light{background:#f1b44d;box-shadow:0 0 7px #f1b44d80}
+.fullscreen-console .check-button[data-lamp=open] .check-light,.fullscreen-console .check-button[data-lamp=moving] .check-light{animation:operator-blink .8s steps(2,end) infinite}
+.fullscreen-console .dispatch-button.ready{animation:depart-blink 1s steps(2,end) infinite;box-shadow:inset 0 1px #d0ffce55,0 2px 5px #0009}
+.fullscreen-console .shortcut{font:8px Consolas,monospace;color:#b5c3c7;border:0;background:transparent;white-space:nowrap}
+.fullscreen-console .check-button{display:grid;grid-template-columns:9px 1fr auto;grid-template-rows:13px 9px;row-gap:0;column-gap:7px;height:35px;padding:3px 9px;line-height:13px}
+.fullscreen-console .check-button .check-light{grid-row:1/3}.fullscreen-console .check-button>span:nth-child(2){text-align:left}.fullscreen-console .check-button>b{grid-column:3;grid-row:1/3;font-size:8px}.fullscreen-console .check-button .shortcut{grid-column:2;text-align:left}
+.fullscreen-console .check-button .shortcut{line-height:9px}.fullscreen-console .check-button>span:nth-child(2){grid-row:1}.fullscreen-console .check-button .shortcut{grid-row:2}
+.fullscreen-console .train-readout{margin:5px 0 3px}.console-seat-panel{margin:3px 0 5px}.console-seat-heading{margin-bottom:4px}
+.fullscreen-console .dispatch-button .shortcut{position:absolute;right:9px;top:7px}.fullscreen-console .dispatch-button{position:relative}
+@keyframes operator-blink{50%{opacity:.3}}@keyframes depart-blink{50%{background:#548d65;box-shadow:0 0 9px #67db7370}}
+@media(max-width:1450px){.console-header{gap:6px}.console-brand{min-width:150px}#console-supervision{gap:7px;font-size:10px}.console-utilities{gap:4px}.console-utilities button{padding:7px 6px}.console-score{font-size:14px}.score-gain{font-size:9px}.console-center{grid-template-rows:minmax(0,1fr) 235px}.fullscreen-console .check-button{height:34px;padding:3px 7px}.fullscreen-console .check-button>b{font-size:7.5px}.floor-command text{font-size:10.5px}}
+@media(min-width:1800px){.console-center{grid-template-rows:minmax(0,1fr) 42%}.fullscreen-console .check-button{height:47px}.fullscreen-console .shortcut{font-size:9px}}
+@media(prefers-reduced-motion:reduce){.fullscreen-console .check-button .check-light,.fullscreen-console .dispatch-button.ready{animation:none}}
+@media(max-height:850px) and (min-width:1051px){.fullscreen-console .control-body{padding-top:3px}.fullscreen-console .control-section .section-label{margin-bottom:3px}.fullscreen-console .control-body .control-section:nth-of-type(2){margin-top:3px;padding-top:3px}.fullscreen-console .train-readout{margin:3px 0}.fullscreen-console .check-button{height:31px;grid-template-rows:12px 8px;padding-top:2px;padding-bottom:2px}.console-seat-panel{margin:2px 0 3px}.console-seat-heading{margin-bottom:4px}.console-seats{grid-template-rows:repeat(2,20px)}#console-seat-detail{margin-top:3px;min-height:13px}.fullscreen-console .row-heading{margin-top:5px}.fullscreen-console .row-checks{margin-top:4px}.fullscreen-console .dispatch-section{padding-top:5px;padding-bottom:5px}.fullscreen-console .dispatch-button{height:58px}.fullscreen-console .control-footer{height:20px;min-height:20px;padding:5px 10px}}
+.floor-cap{fill:#99aeb7;font:10px Consolas,monospace}
+.floor-room.preshow .floor-status{font-size:10px}

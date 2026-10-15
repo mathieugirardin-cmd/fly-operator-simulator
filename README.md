@@ -1,6 +1,8 @@
-# F.L.Y. Operator Simulator — prototype 0.5
+# F.L.Y. Operator Simulator — prototype 0.6
 
 Pupitre plein écran en français : scène Three.js, circuit et carte synchronisés, deux gares souterraines, occupation des pièces, files standard/Fast Pass, préshow, 120 casiers, deux postes de sécurité et six trains. Le moteur central fournit l’état de toutes les vues.
+
+La version **0.6** ajoute le plan vivant avec commandes de portes, les arrivées Fast Pass proportionnelles, le score persistant à la sortie, les sons synthétisés, la pause/vitesse et les raccourcis du pupitre. Vérifications et limites : [EVOLUTIONS-0.6.md](docs/EVOLUTIONS-0.6.md). Les mises à jour du site passent par les tests et le déploiement GitHub Actions.
 
 Projet non officiel, sans affiliation à Phantasialand ou Vekoma. Tracé, altitudes, cantons, procédures et incidents sont des conventions fictives de jeu ; ce logiciel n’est pas un outil de formation à l’exploitation réelle.
 
