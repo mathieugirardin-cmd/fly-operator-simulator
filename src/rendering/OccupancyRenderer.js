@@ -93,6 +93,13 @@ function interior(group,key,r){
   if(key==='exit'){rect(r.w-52,33,22,28,'exit-portal');path(`M${r.x+r.w-47} ${r.y+43}h12m-4-4 4 4-4 4`,'exit-arrow');}lamp(r.w-20,22);
  }
 }
+// Recompute scenery coordinates in CSS pixels; text, people and controls keep
+// their own dimensions. No SVG/group transform or non-uniform SVG viewport.
+function projectPath(path,x,y,sx,sy){
+ const tokens=path.match(/[a-zA-Z]|[-+]?(?:\d*\.\d+|\d+\.?\d*)(?:[eE][-+]?\d+)?/g)||[];
+ const counts={M:2,L:2,H:1,V:1,C:6,S:4,Q:4,T:2,A:7,Z:0};let command='M',index=0;
+ return tokens.map(token=>{if(/^[a-zA-Z]$/.test(token)){command=token;index=0;return token;}const upper=command.toUpperCase(),relative=command!==upper,slot=index++%(counts[upper]||1),value=Number(token);let axis=upper==='H'?'x':upper==='V'?'y':slot%2?'y':'x';if(upper==='A'){if(slot===0)return value*sx;if(slot===1)return value*sy;if(slot<5)return value;axis=slot===5?'x':'y';}return Math.round((relative?value*(axis==='x'?sx:sy):(axis==='x'?x(value):y(value)))*100)/100;}).join(' ');
+}
 export class OccupancyRenderer {
  constructor(container,onSelect,onCommand){
   this.nodes=new Map();this.onCommand=onCommand;this.lastTime=null;
@@ -132,7 +139,28 @@ export class OccupancyRenderer {
   this.showEntry=el('text',{x:382,y:275,class:'door-state show-door-state'});this.showExit=el('text',{x:516,y:275,class:'door-state show-door-state'});this.svg.append(this.showEntry,this.showExit);
   this.scanner=el('text',{x:30,y:159,class:'fast-scan'});this.svg.append(this.scanner);
   this.caption=document.createElement('p');this.caption.className='occupancy-caption';container.append(this.caption);
+  this.scaleX=1;this.scaleY=1;this.mapX=x=>x;this.mapY=y=>y;
+  this.geometry=[...this.svg.querySelectorAll('*')].filter(n=>!n.closest('defs')&&!n.closest('.floor-people')).map(node=>({node,attrs:Object.fromEntries([...node.attributes].filter(a=>['x','y','x1','x2','y1','y2','cx','cy','width','height','points','d'].includes(a.name)).map(a=>[a.name,a.value]))}));
+  this.resizeObserver=new ResizeObserver(([entry])=>this.layout(entry.contentRect.width,entry.contentRect.height));this.resizeObserver.observe(this.svg);
+
  }
+ layout(width,height){
+  width=Math.round(width);height=Math.round(height);if(width<100||height<100||this.layoutSize===`${width}:${height}`)return;this.layoutSize=`${width}:${height}`;
+  const sx=(width-20)/1176,sy=(height-20)/570,x=v=>10+(v-12)*sx,y=v=>10+(v-18)*sy;this.scaleX=sx;this.scaleY=sy;this.mapX=x;this.mapY=y;
+  this.svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
+  for(const {node,attrs}of this.geometry){
+   for(const [key,raw]of Object.entries(attrs)){
+    if(key==='d'){node.setAttribute(key,projectPath(raw,x,y,sx,sy));continue;}
+    if(key==='points'){const values=raw.trim().split(/[ ,]+/).map(Number);node.setAttribute(key,values.map((v,i)=>i%2?y(v):x(v)).join(' '));continue;}
+    const value=Number(raw);if(!Number.isFinite(value))continue;
+    node.setAttribute(key,key==='width'?value*sx:key==='height'?value*sy:['x','x1','x2','cx'].includes(key)?x(value):y(value));
+   }
+  }
+  for(const button of this.svg.querySelectorAll('.floor-command')){const rect=button.querySelector('rect'),text=button.querySelector('text');rect.setAttribute('height','27');text.setAttribute('y',Number(rect.getAttribute('y'))+18);}
+  this.showBar.setAttribute('width',244*(this.lastShowProgress||0)*sx);
+  for(const record of this.pool.records.values())if(record.point){record.value.setAttribute('x',x(record.point[0])-6);record.value.setAttribute('y',y(record.point[1])-17);}
+ }
+ dispose(){this.resizeObserver.disconnect();this.pool.reset();}
  reset(){this.pool.reset();this.lastTime=null;}
  point(zone,record,person){
   if(zone==='boarding')return (person.prepared?preparedPoint:seatPoint)(person.seat??record.slot);
@@ -149,7 +177,7 @@ export class OccupancyRenderer {
   if(this.lastTime!==null&&s.time<this.lastTime)this.reset();const dt=this.lastTime===null?0:Math.max(0,Math.min(.3,s.time-this.lastTime));this.lastTime=s.time;this.state=s;
   const f=s.flow,{zones,transits}=roomPopulation(s),show=showPresentation(s),active=new Set(),caps={standard:f.lanes.standard.capacity,fast:f.lanes.fast.capacity,single:f.lanes.single.capacity,preshow:f.preshow.capacity,lockers:f.room.lockerCapacity,'SEC-01':24,'SEC-02':24,ready:40,singleReady:40,boarding:20,unloading:20,retrieval:120,exit:120};
   const open={standard:f.lanes.standard.open,fast:f.lanes.fast.open,single:f.lanes.single.open,preshow:f.preshow.entranceOpen||f.preshow.exitOpen,lockers:f.room.lockerDoorOpen,'SEC-01':f.security.stations[0].open,'SEC-02':f.security.stations[1].open,ready:s.station.gatesOpen,singleReady:s.station.gatesOpen,boarding:s.station.gatesOpen,unloading:true,retrieval:true,exit:true};
-  const draw=(record,p,point,zone)=>{const node=record.value;if(!node.isConnected)this.layer.append(node);node.setAttribute('x',point[0]-6);node.setAttribute('y',point[1]-17);node.style.display=zone!=='transit'&&zone!=='boarding'&&!p.prepared&&record.slot>=(visualCaps[zone]||120)?'none':'';node.setAttribute('fill',p.lane==='single'?'#d39af1':p.lane==='fast'?'#ecc36f':'#94cfdb');node.setAttribute('data-person',p.id);node.setAttribute('data-zone',zone);};
+  const draw=(record,p,point,zone)=>{const node=record.value;if(!node.isConnected)this.layer.append(node);node.setAttribute('x',this.mapX(point[0])-6);node.setAttribute('y',this.mapY(point[1])-17);node.style.display=zone!=='transit'&&zone!=='boarding'&&!p.prepared&&record.slot>=(visualCaps[zone]||120)?'none':'';node.setAttribute('fill',p.lane==='single'?'#d39af1':p.lane==='fast'?'#ecc36f':'#94cfdb');node.setAttribute('data-person',p.id);node.setAttribute('data-zone',zone);};
   for(const [zone,node]of this.nodes){const ids=zones[zone],incoming=transits.filter(p=>p.to===zone).length;node.count.textContent=`${zone==='boarding'?ids.filter(p=>!p.prepared).length:ids.length} / ${caps[zone]}${incoming&&ROOMS[zone].h<=200?` · +${incoming}`:''}`;node.incoming.textContent=incoming?`+${incoming} en transit`:'';if(zone==='exit')node.count.textContent=`${f.metrics.departed} sorties · ${incoming} en marche`;if(zone.startsWith('SEC-'))node.count.textContent=`${ids.length} présents`;
    node.title.textContent=`${ROOMS[zone].label} : ${ids.length} personnes, ${incoming} en transit. ${zone.startsWith('SEC-')?'Capacité commune sécurité : 24':`Capacité : ${caps[zone]}`}.`;if(zone==='boarding')node.title.textContent=`${ids.filter(p=>!p.prepared).length} passagers · ${s.station.prepared.length} visiteurs préparés derrière les portiques.`;node.group.classList.toggle('selected',zone===selected);node.group.classList.toggle('full',ids.length+incoming>=caps[zone]);node.group.classList.toggle('show-playing',zone==='preshow'&&show.phase==='PLAYING');node.door.classList.toggle('open',!!open[zone]);
    const label=this.doorLabels.get(zone);if(label){label.textContent=open[zone]?'● Ouverte':'⊣ Fermée';label.classList.toggle('open',!!open[zone]);}
@@ -160,7 +188,7 @@ export class OccupancyRenderer {
    if(!record.transit||record.transit.key!==key)record.transit={key,start:record.point||center(p.from)};
    const destination=p.to==='boarding'?seatPoint(p.seat):entries[p.to]||center(p.to),way=route(p.from,p.to);const points=p.from==='boarding'?[record.transit.start,destination]:[record.transit.start,...way.slice(0,-1),destination];record.point=along(points,p.t);draw(record,p,record.point,'transit');
   }
-  this.pool.retain(active);this.showEntry.textContent=f.preshow.entranceOpen?'● Entrée ouverte':'⊣ Entrée fermée';this.showExit.textContent=f.preshow.exitOpen?'● Sortie ouverte':'⊣ Sortie fermée';this.showEntry.classList.toggle('open',f.preshow.entranceOpen);this.showExit.classList.toggle('open',f.preshow.exitOpen);this.platformReadout.textContent=`Quai préparé : ${s.station.prepared.length}/20 · attente par rangée`;const completed=['FINISHED','EXITING'].includes(show.phase),progress=show.phase==='PLAYING'?Math.min(1,f.preshow.elapsed/f.preshow.duration):completed?1:0;this.showTimer.textContent=show.phase==='PLAYING'?`Temps restant : ${mmss(f.preshow.duration-f.preshow.elapsed)}`:show.phase==='FINISHED'?'Séance terminée — ouvrir la sortie':show.phase==='EXITING'?`Sortie : ${Math.max(0,f.preshow.exitTotal-f.preshow.batch.length-f.people.filter(p=>p.transit?.from==='preshow').length)}/${f.preshow.exitTotal}`:show.label.split(' · ')[0];this.showBar.setAttribute('width',String(244*progress));this.showBar.setAttribute('data-phase',show.phase);this.showPercent.textContent=show.phase==='PLAYING'||show.phase==='FINISHED'?`${Math.round(progress*100)} %`:'';const advice=singleRecommendation(s);this.advice.textContent=advice.limited?`Besoin ${advice.need} · possible ${advice.count} (capacité)`:`Complément conseillé : ${advice.need} Single Riders`;
+  this.pool.retain(active);this.showEntry.textContent=f.preshow.entranceOpen?'● Entrée ouverte':'⊣ Entrée fermée';this.showExit.textContent=f.preshow.exitOpen?'● Sortie ouverte':'⊣ Sortie fermée';this.showEntry.classList.toggle('open',f.preshow.entranceOpen);this.showExit.classList.toggle('open',f.preshow.exitOpen);this.platformReadout.textContent=`Quai préparé : ${s.station.prepared.length}/20 · attente par rangée`;const completed=['FINISHED','EXITING'].includes(show.phase),progress=show.phase==='PLAYING'?Math.min(1,f.preshow.elapsed/f.preshow.duration):completed?1:0;this.showTimer.textContent=show.phase==='PLAYING'?`Temps restant : ${mmss(f.preshow.duration-f.preshow.elapsed)}`:show.phase==='FINISHED'?'Séance terminée — ouvrir la sortie':show.phase==='EXITING'?`Sortie : ${Math.max(0,f.preshow.exitTotal-f.preshow.batch.length-f.people.filter(p=>p.transit?.from==='preshow').length)}/${f.preshow.exitTotal}`:show.label.split(' · ')[0];this.lastShowProgress=progress;this.showBar.setAttribute('width',String(244*progress*this.scaleX));this.showBar.setAttribute('data-phase',show.phase);this.showPercent.textContent=show.phase==='PLAYING'||show.phase==='FINISHED'?`${Math.round(progress*100)} %`:'';const advice=singleRecommendation(s);this.advice.textContent=advice.limited?`Besoin ${advice.need} · possible ${advice.count} (capacité)`:`Complément conseillé : ${advice.need} Single Riders`;
   const scan=f.fastScanner;this.scanner.textContent=`Scan : ${scan.visitorId?'#'+scan.visitorId:'attente'} · ${scan.result==='valid'?'valide':scan.result==='used'?'déjà utilisé':scan.result==='invalid'?'invalide':scan.visitorId?'en cours':'libre'}`;
   const at=s.trains.find(t=>t.blockId==='LOAD'&&t.progress>=1);for(const seat of this.svg.querySelectorAll('[data-plan-seat]')){const r=at?.restraints[Number(seat.getAttribute('data-plan-seat'))];seat.setAttribute('data-state',r?.state||'EMPTY');}
   this.caption.textContent=`${transits.length} personnes en déplacement · Standard bleu / Fast Pass or / Single Rider violet · symboles espacés (effectifs complets aux enseignes)`;
